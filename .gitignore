@@ -3,6 +3,7 @@
 /gameserver
 /client
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
@@ -10,9 +11,17 @@
 # Test binaries
 *.test
 *.out
+coverage.*
+*.coverprofile
+profile.cov
 
 # Go
 vendor/
+go.work
+go.work.sum
+
+# env file
+.env
 
 # IDE
 .idea/
