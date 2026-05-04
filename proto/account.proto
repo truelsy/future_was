@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "future_next_baseball/pb";
+
+message LoginRequest {
+  uint64 channel_uid = 1;
+  string device_id = 2;
+}
+
+message LoginResponse {
+  uint64 user_id = 1;
+  uint64 channel_uid = 2;
+  bool is_new = 3;
+}

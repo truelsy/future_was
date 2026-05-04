@@ -1,0 +1,30 @@
+server:
+  port: "8089"
+
+databases:
+  - name: "game"
+    shard_id: 0
+    host: "localhost"
+    port: "3306"
+    user: "root"
+    password: "npb@future"
+    dbname: "FUTURE_NPB_GAME"
+  - name: "shard_1"
+    shard_id: 10
+    host: "localhost"
+    port: "3306"
+    user: "root"
+    password: "npb@future"
+    dbname: "FNPB_GAME_S0"
+
+redis:
+  - name: "user_lock"
+    host: "localhost"
+    port: "6379"
+    password: "npb@future"
+    db: 0
+  - name: "user_cache"
+    host: "localhost"
+    port: "6379"
+    password: "npb@future"
+    db: 1

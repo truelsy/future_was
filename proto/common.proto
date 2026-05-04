@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "future_next_baseball/pb";
+
+message ErrorResponse {
+  int32 code = 1;
+  string message = 2;
+}
+
+message HealthResponse {
+  string status = 1;
+}
+
+message WelcomeResponse {
+  string message = 1;
+}
+
+message GameRequest {
+  uint32 action = 1;
+  uint64 user_id = 2;
+  int64 timestamp = 3;
+  bytes body = 4;
+}
+
+message GameResponse {
+  uint32 action = 1;
+  int32 code = 2;
+  int64 timestamp = 3;
+  bytes body = 4;
+}
