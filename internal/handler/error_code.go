@@ -31,4 +31,7 @@ const (
 	// 에셋 (3xxx)
 	CodeAssetNotFound     int32 = 3001
 	CodeAssetInsufficient int32 = 3002
+
+	// 디자인/버전 (4xxx)
+	CodeUnsupportedVersion int32 = 4001
 )

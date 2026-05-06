@@ -34,3 +34,14 @@ go.work.sum
 
 # Claude
 .claude/
+
+# Tools input/output (xlsx 원본, 변환 결과는 git 추적 제외, .gitkeep만 보존)
+tools/*/input/*
+tools/*/output/*
+!tools/*/input/.gitkeep
+!tools/*/output/.gitkeep
+
+# Python venv
+tools/*/.venv/
+__pycache__/
+*.pyc

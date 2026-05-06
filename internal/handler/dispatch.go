@@ -51,6 +51,7 @@ func dispatch(c echo.Context) error {
 	// 미들웨어(logger 등)에서 참조할 수 있도록 context에 저장한다.
 	c.Set("action_id", req.Action)
 	c.Set("user_id", req.UserId)
+	c.Set("client_version", req.ClientVersion)
 
 	def, ok := actionRegistry[req.Action]
 	if !ok {

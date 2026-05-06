@@ -11,7 +11,9 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func Setup(e *echo.Echo) {
-	c := container.New()
+// Setup 핸들러를 초기화하고 라우트를 등록한다.
+// container는 main에서 design 의존성과 함께 구성된 인스턴스를 전달한다.
+func Setup(e *echo.Echo, c *container.Container) {
 	handler.SetupAll(e, c)
+	setupAdmin(e, c)
 }

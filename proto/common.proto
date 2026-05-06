@@ -20,7 +20,8 @@ message GameRequest {
   uint32 action = 1;
   uint64 user_id = 2;
   int64 timestamp = 3;
-  bytes body = 4;
+  string client_version = 4;
+  bytes body = 5;
 }
 
 message GameResponse {

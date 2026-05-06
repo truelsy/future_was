@@ -15,7 +15,10 @@ import (
 
 	"future_next_baseball/config"
 	"future_next_baseball/internal/cache"
+	"future_next_baseball/internal/container"
 	"future_next_baseball/internal/database"
+	"future_next_baseball/internal/design"
+	"future_next_baseball/internal/repository"
 	"future_next_baseball/pb"
 	"future_next_baseball/router"
 
@@ -53,6 +56,26 @@ func main() {
 	}
 	defer cache.CloseAll()
 
+	// 디자인 데이터: TB_VERSION 기반 자동 로드 + Pub/Sub 동기화
+	designLoader := design.NewLoader(cfg.CDN.DesignBaseURL, cfg.CDN.HTTPTimeoutSeconds)
+	designStore := design.NewStore()
+	versionRepo := repository.NewVersionRepository(database.GetShard(0))
+	designSyncer := design.NewSyncer(designStore, designLoader, cache.Get(cache.NameDesignSync), versionRepo)
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.CDN.HTTPTimeoutSeconds)*time.Second)
+		err := designSyncer.LoadActive(ctx)
+		cancel()
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to load active design versions")
+		}
+	}
+	syncerCtx, syncerCancel := context.WithCancel(context.Background())
+	defer syncerCancel()
+	designSyncer.Start(syncerCtx)
+
+	// Container 구성
+	ctn := container.New(designStore, designSyncer)
+
 	e := echo.New()
 	e.Use(middleware.RecoverMiddleware())
 	e.Use(middleware.LogMiddleware())
@@ -69,7 +92,7 @@ func main() {
 		})
 	})
 
-	router.Setup(e)
+	router.Setup(e, ctn)
 
 	// setting server args
 	srv := &http.Server{

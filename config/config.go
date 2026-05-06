@@ -11,6 +11,12 @@ type Config struct {
 	Server    ServerConfig  `yaml:"server"`
 	Databases []DBConfig    `yaml:"databases"`
 	Redis     []RedisConfig `yaml:"redis"`
+	CDN       CDNConfig     `yaml:"cdn"`
+}
+
+type CDNConfig struct {
+	DesignBaseURL      string `yaml:"design_base_url"`
+	HTTPTimeoutSeconds int    `yaml:"http_timeout_seconds"`
 }
 
 type ServerConfig struct {

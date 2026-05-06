@@ -1,4 +1,4 @@
-.PHONY: build run proto clean vet client
+.PHONY: build run proto clean vet client design design-struct
 
 # 서버 빌드
 build:
@@ -23,3 +23,12 @@ client:
 # 빌드 산출물 삭제
 clean:
 	rm -f server
+
+# 디자인 데이터 변환 (Excel → JSON)
+# 사용 예: make design VERSION=v1.0.5
+design:
+	cd tools/excel2json && python excel2json.py $(if $(VERSION),--version $(VERSION),)
+
+# 디자인 struct 코드 생성 (Excel → Go struct)
+design-struct:
+	cd tools/excel2struct && python excel2struct.py
