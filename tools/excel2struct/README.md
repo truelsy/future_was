@@ -28,12 +28,14 @@ pip install -r requirements.txt
 ## 사용
 
 ```bash
-# 기본 실행
+# 기본 실행 (output/ 에 schema 패키지로 생성)
 python excel2struct.py
 
-# 패키지명/경로 지정
-python excel2struct.py --package design --input-dir ./input --output-dir ../../internal/design
+# 게임 서버에 직접 배치 (internal/design/schema/)
+python excel2struct.py --output-dir ../../internal/design/schema
 ```
+
+기본 패키지명은 `schema` (= `internal/design/schema/` 와 매칭).
 
 ## 변환 규칙
 
@@ -98,9 +100,9 @@ type CardsDesign struct {
 ## 워크플로
 
 1. 기획자가 `input/`에 xlsx 작성
-2. `python excel2struct.py --output-dir ../../internal/design`
+2. `python excel2struct.py --output-dir ../../internal/design/schema`
 3. 생성된 `.go` 파일을 그대로 사용 (`DO NOT EDIT` 표시 있으니 직접 수정 금지)
-4. `Snapshot` 통합 (Get 메서드, map 필드)은 수동으로 추가
+4. `internal/design/<domain>.go` (수동) 에 `Snapshot.GetXxx()` 메서드 + `Snapshot` 필드 + `loader.go` unmarshal 케이스 추가
 
 ## 새 도메인 추가
 

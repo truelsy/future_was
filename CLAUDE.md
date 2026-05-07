@@ -1,117 +1,108 @@
 # CLAUDE.md
 
 ## Project
-Future Next Baseball — Go 기반 야구 게임 서버 (Echo + MySQL + Redis).
+Future Next Baseball — Go 야구 게임 서버 (Echo + MySQL 샤딩 + Redis 다중 인스턴스 + CDN 디자인 데이터).
 
 ## Stack
-- **Language**: Go 1.25.4
-- **Framework**: Echo v4
-- **DB**: MySQL (sqlx, 다중 DB 지원)
-- **Cache**: Redis v9 (go-redis)
-- **Config**: YAML (`config.yaml`)
-- **Protocol**: Protobuf (요청/응답 바디)
-- **Port**: 8080
+- Go 1.25.4 / Echo v4 / sqlx / go-redis v9 / Protobuf
+- Config: `config.yaml`
 
-## Structure
+## Layout
 ```
-main.go                          # config 로드 → DB/Redis init → Echo 기동
-config/config.go                 # YAML 파서, DSN 생성
-router/router.go                 # Container 생성 → handler.SetupAll(/api)
-pb/                              # protobuf 생성 코드 (account, common)
-proto/                           # .proto 원본
+main.go                       # config → DB/Redis/Design init → Echo
+config/                       # YAML 파서
+router/                       # /api 디스패처, /admin
+proto/, pb/                   # 원본 + 생성 코드
 internal/
-  container/                     # 공유 의존성 (GameDB, UserCache)
-  database/                      # sqlx 래퍼 + Model 기반 CRUD
-  cache/                         # Redis 초기화 + UserCache (Hash 기반)
-  model/                         # TB_ACCOUNT, TB_ASSET (Model 구현체)
-  repository/                    # DB 접근 계층
-  service/                       # 비즈니스 로직 (Cache-First)
-  handler/                       # init() 자동 등록 패턴, protobuf I/O
+  app/                        # AppParams (import cycle 회피)
+  container/                  # 공유 의존성
+  database/                   # sqlx + Model CRUD, 샤드 레지스트리
+  cache/                      # Redis 레지스트리, UserCache, UserLock
+  model/                      # TB_* 매핑 (Model 인터페이스)
+  repository/                 # DB 접근
+  service/                    # 비즈니스 로직 (cache-first)
+  uow/                        # Unit of Work (제네릭 LoadOne/LoadList/Create)
+  handler/                    # 단일 라우트 디스패처 + 도메인 서브패키지
+  design/                     # CDN 로더 + Snapshot Store + Syncer (Pub/Sub)
+    schema/                   # excel2struct 자동 생성 (수정 금지)
+  middleware/                 # logger, recover
+tools/
+  excel2json/                 # 디자인 xlsx → JSON + manifest
+  excel2struct/               # 디자인 xlsx → Go struct
 ```
 
 ## Architecture
 ```
-Request → Echo → Handler → Service → UserCache (Hit 시 반환)
-                              ↓ Miss
-                          Repository → MySQL → Cache Set
+POST /api  GameRequest{action, user_id, timestamp, client_version, body}
+   ↓ dispatch (UserLock 획득 → ctx 세팅)
+Handler → Service → UoW (cache → Redis → DB) → Commit
+   ↓ GameResponse{action, code, timestamp, body}
 ```
-- Handler: protobuf 바인딩/응답, 입력 검증
-- Service: Cache-First. 캐시 조회 → 연산 → DB 반영 → 캐시 갱신
-- Repository: `database` 패키지의 Model 기반 CRUD 사용 (생 SQL 지양)
-- Model: `TableName()`, `PrimaryKey()` 구현 + `db` 태그로 컬럼 추출 (리플렉션 + 메타 캐시)
 
 ## Key Patterns
 
-### Handler 자동 등록
-`init()`에서 `handler.Register(fn)` 호출 → `SetupAll(api, container)`에서 일괄 실행.
+### Single-Route Dispatcher (`internal/handler/dispatch.go`)
+- `POST /api`: envelope 디코드 → action 라우팅 → 자동 `CommitOrRollback`
+- 컨텍스트: `action_id`, `user_id`, `client_version`, `uow`
+- userID≠0 이면 Redis 분산락 (`UserLock`) 자동 획득
+
+### Action 등록
 ```go
-func init() { Register(registerAccountHandler) }
+// internal/handler/<domain>/setup.go
+func init() { handler.Register(setup) }
+func setup(c *handler.Container) { handler.RegisterAction(ActionXxx, h.Handle, &pb.XxxRequest{}) }
 ```
 
-### Database CRUD (Model 기반)
+### UoW (`internal/uow/`)
+- `LoadOne[T Model](u, field, db)` / `LoadList[T]` — store→Redis→DB lazy 로드
+- `Create[T]` (큐잉) / `CreateNow[T]` (즉시 INSERT, FieldAccount는 userID 자동 할당)
+- `Commit()`: ops를 DB별 트랜잭션으로 묶어 실행 → UserCache.SetMulti
+
+### Database (Model 기반)
 ```go
-db.FindOne(&account, "channel_uid = ? AND is_active > 0", cuid)
-db.FindList(&list, model.Asset{}, "user_id = ?", opt, uid)
-db.Create(&model)                           // LastInsertId 반환
-db.Save(&model, "device_id", "update_time") // 지정 컬럼만 UPDATE
-db.Remove(&model, pkValue)
-db.CountOf(model.X{}, "where ...")
+db.FindOne(&m, "...", args...)
+db.FindList(&list, model.X{}, "...", opt, args...)
+db.Create(&m); db.Save(&m, cols...); db.Remove(&m, pk)
 db.Transaction(func(tx *sqlx.Tx) error { ... })
-// raw: db.RawGet / RawSelect / RawExec
+database.IsNotFound(err)
 ```
-에러 판별: `database.IsNotFound(err)`
+- Model 인터페이스: `TableName()`, `PrimaryKey()`, `SetPrimaryKey(int64)`, `IsSingleton() bool`
+- 모든 메서드는 포인터 리시버
+- 샤드: `database.GetShard(account.DBShardID)`
 
-### UserCache (Redis Hash)
-- Key: `user:{user_id}`, Field별 JSON 저장, TTL 30분 (set 시 리셋)
-- `cache.GetOrLoad[T](userCache, userID, field, loader)` — 제네릭 cache-aside
-- 필드 상수: `cacheFieldAccount = "account"`, `cacheFieldAssets = "assets"`
+### Redis 다중 인스턴스 (`internal/cache/`)
+- 레지스트리: `cache.Init(name, ...)`, `cache.Get(name)`, `CloseAll()`
+- 이름: `NameUserLock`, `NameUserCache`, `NameDesignSync`
+- `UserLock.Acquire/Release` — `SetArgs{Mode:"NX"}` + Lua 해제
+- `UserCache` — Hash 구조, `GetOrLoad[T]` 제네릭 cache-aside
 
-### Protobuf I/O
-- `handler.BindProto(c, &req)` — body → proto
-- `handler.SendProto(c, code, msg)` — proto → response (현재 `c.JSON`로 전송, Blob 주석 처리됨)
-- `SendBadRequest` / `SendInternalError` / `SendError` — `pb.ErrorResponse`
+### JSON 컬럼 (`model.JSONField[T]`)
+- `Scan` (포인터 리시버), `Value`/`MarshalJSON` (값 리시버 — sqlx 호환)
 
-## Domain Models
+### Design Data (`internal/design/`)
+- TB_VERSION의 `is_active=1` 행 → server_version DESC 정렬
+- 최신 → `current`, 그 다음 → `previous`
+- `client_version → server_version` 매핑은 `versionMap`에 저장
+- 핸들러: `handler.Design(c)` / `handler.GetXxxDesign(c, id)` 사용
+- 동기화: 단일 Pub/Sub 채널 → 모든 서버 `LoadActive` 재실행
+- Admin: `POST /admin/design/reload`
 
-### TB_ACCOUNT (`model.Account`, PK: `user_id`)
-`user_id`, `channel_uid`, `device_id`, `is_active` (0:비활성/1:정식/2:게스트), `db_shard_id`, `table_id`, `insert_time`, `update_time`
-
-### TB_ASSET (`model.Asset`, PK: `idx`, UNIQUE: `(user_id, asset_id)`)
-`idx`, `user_id`, `asset_id`, `quantity` (int64, 음수 가능), `insert_time`, `update_time`
-
-## APIs
-- `GET /` — Welcome (proto)
-- `GET /health` — Health (proto)
-- `POST /api/login` — `pb.LoginRequest{channel_uid, device_id}` → `pb.LoginResponse{user_id, channel_uid, is_new}`. 없으면 신규 계정 생성.
-
-## Services
-
-### AccountService
-- `Login(channelUID, deviceID)` — 조회 → 없으면 생성, 캐시 갱신. `(account, isNew, err)`
-- `GetAccount(userID)` — cache-aside
-
-### AssetService
-- `GetAssets(userID)` — cache-aside 전체 목록
-- `AddAsset(userID, assetID, qty)` — 캐시에서 탐색 → 없으면 Create / 있으면 UpdateQuantity → 캐시 갱신
-- `ConsumeAsset(userID, assetID, qty)` — 부족 시 에러, 차감 후 DB/캐시 반영
+### Error Codes (`internal/handler/error_code.go`)
+- 200/400/429/500 + 1xxx(계정) / 2xxx(카드) / 3xxx(자산) / 4xxx(버전)
+- `handler.Errorf(code, fmt, ...)` / `BadRequest(...)`
 
 ## Conventions
-- 시간: `uint32(time.Now().Unix())` (Unix epoch seconds)
-- `db` 태그 = 컬럼명, PK는 INSERT 자동 제외 (auto-increment)
-- Service는 `database` 패키지 직접 의존하지 않음 (`IsNotFound` 사용)
-- 새 도메인 추가 시: model → repository → service → handler (`init()` 등록) 순서
-
-## Config 예시 (`config.yaml`)
-```yaml
-server: { port: "8080" }
-databases:
-  - { name: "game", host: "localhost", port: "3306", user: "root", password: "...", dbname: "FUTURE_NPB_GAME" }
-redis: { host: "localhost", port: "6379", password: "", db: 0 }
-```
-DB 인스턴스 접근: `database.Get("game")`
+- 시간: `uint32(time.Now().Unix())`
+- `db` 태그 = 컬럼명, PK는 INSERT 자동 제외
+- Service는 `database` 직접 의존 X (`IsNotFound` 사용)
+- 자동 생성 파일(`schema/`, `pb/`) 직접 수정 금지
+- 새 도메인: model → repository → service → handler subpkg(`init()` 등록) → action ID
 
 ## Build / Run
 ```bash
-go run main.go          # config.yaml 기준 실행
-go build -o server .
+make run                 # config.yaml 기준 실행
+make build               # 바이너리
+make proto               # .proto → pb/
+make design              # tools/excel2json
+make design-struct       # tools/excel2struct
 ```

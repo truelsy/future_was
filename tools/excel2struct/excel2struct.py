@@ -9,29 +9,39 @@ input 디렉토리의 xlsx 파일들을 읽어 디자인 데이터용 Go struct�
 기본값:
   --input-dir   ./input
   --output-dir  ./output
-  --package     design
+  --package     schema
 
-처리 대상:
-  input/ 디렉토리의 모든 .xlsx 파일을 자동 처리한다.
-  예: input/cards.xlsx → output/card_design.go
-      type CardDesign struct { ... }
+xlsx 포맷 (4행 헤더, 서버 전용):
+  1행: CLIENT 사용 여부 (사용 안 함)
+  2행: SERVER 사용 여부 ('SERVER'이면 서버가 사용 → struct 필드로 추출)
+  3행: 데이터 타입 (예: INT, STRING). '(PK)' 접미가 있으면 PK 컬럼.
+  4행: 컬럼명 (Go 필드명/JSON 태그로 사용)
+  5행~: 데이터
+
+  PK는 추출된 컬럼 중 정확히 1개여야 한다 (검증).
 
 규칙:
-  - 파일명(stem)을 PascalCase로 변환 후 'Design' 접미사 붙임
-    cards.xlsx → CardDesign
-    skills.xlsx → SkillDesign
+  - 파일명(stem)을 PascalCase로 변환 후 'Design' 접미사 부여
+    cards.xlsx → CardsDesign
     BAT_DATA.xlsx → BatDataDesign
-  - 첫 시트 사용. 첫 행은 헤더(컬럼명).
-  - 첫 번째 컬럼은 PK로 표시 (주석)
-  - 각 컬럼명을 PascalCase Go 필드명으로 변환
-  - 타입 추론: 정수→uint32, 큰정수→uint64, 실수→float64, 그 외→string
-  - JSON 태그 자동 부여 (원본 컬럼명 그대로)
+  - 컬럼명을 PascalCase Go 필드명으로 변환
+  - 숫자로 시작하는 컬럼은 'F' prefix (2B → F2B)
+  - JSON 태그는 원본 컬럼명 그대로
   - 임시 파일(~$로 시작), 숨김 파일은 제외
 
-생성된 .go 파일은 internal/design/ 등으로 복사하여 사용한다.
+타입 매핑 (Excel → Go):
+  STRING/STR/TEXT             → string
+  INT/INT32                   → int32
+  INT64/LONG                  → int64
+  UINT/UINT32                 → uint32
+  UINT64                      → uint64
+  FLOAT/FLOAT32               → float32
+  FLOAT64/DOUBLE/REAL         → float64
+  BOOL/BOOLEAN                → bool
 """
 
 import argparse
+import math
 import re
 import sys
 from pathlib import Path
@@ -41,6 +51,23 @@ try:
 except ImportError:
     print("pandas가 필요합니다. 'pip install pandas openpyxl'으로 설치하세요.", file=sys.stderr)
     sys.exit(1)
+
+
+SERVER_MARKER = "SERVER"
+PK_MARKER = "(PK)"
+
+TYPE_MAP = {
+    "STRING": "string", "STR": "string", "TEXT": "string",
+    "INT": "int32", "INT32": "int32",
+    "INT64": "int64", "LONG": "int64",
+    "INT8": "int8", "INT16": "int16",
+    "UINT": "uint32", "UINT32": "uint32",
+    "UINT64": "uint64",
+    "UINT8": "uint8", "UINT16": "uint16",
+    "FLOAT": "float32", "FLOAT32": "float32",
+    "FLOAT64": "float64", "DOUBLE": "float64", "REAL": "float64",
+    "BOOL": "bool", "BOOLEAN": "bool",
+}
 
 
 def list_xlsx_files(input_dir: Path) -> list[Path]:
@@ -78,34 +105,18 @@ def to_snake_case_filename(pascal: str) -> str:
     return s.lower()
 
 
-def go_type_for_series(series) -> str:
-    """pandas Series의 dtype으로 Go 타입을 추론한다.
+def cell_str(v) -> str:
+    """셀 값을 문자열로 정규화 (NaN/None은 빈 문자열)."""
+    if v is None:
+        return ""
+    if isinstance(v, float) and math.isnan(v):
+        return ""
+    return str(v).strip()
 
-    - 정수 (모든 값이 uint32 범위 내) → uint32
-    - 정수 (큰 값 또는 음수 가능) → int64
-    - 실수 → float64
-    - 불린 → bool
-    - 그 외 → string
-    """
-    s = series.dropna()
-    if s.empty:
-        return "string"
 
-    if pd.api.types.is_bool_dtype(s):
-        return "bool"
-
-    if pd.api.types.is_integer_dtype(s):
-        # 모두 0 이상이고 uint32 범위 내면 uint32
-        if (s >= 0).all() and (s <= 0xFFFFFFFF).all():
-            return "uint32"
-        return "int64"
-
-    if pd.api.types.is_float_dtype(s):
-        # 정수처럼 보이는 float (1.0, 2.0 등)도 정수로 처리할지?
-        # 안전하게 float64 유지
-        return "float64"
-
-    return "string"
+def go_type_for(type_name: str) -> str:
+    """Excel 타입 문자열 → Go 타입. 미지원 타입은 string으로 fallback."""
+    return TYPE_MAP.get(type_name.upper(), "string")
 
 
 def derive_type_name(stem: str) -> str:
@@ -116,13 +127,49 @@ def derive_type_name(stem: str) -> str:
     return base
 
 
+def select_columns(df: pd.DataFrame) -> tuple[list[str], list[str], str]:
+    """SERVER 마커가 있는 컬럼만 추출하여 (컬럼명 리스트, Go 타입 리스트, PK 컬럼명) 반환.
+
+    df는 header=None으로 읽은 raw DataFrame이며, 행 인덱스 0~3이 헤더이다.
+    """
+    if df.shape[0] < 5:
+        raise ValueError("최소 4행 헤더 + 1행 데이터 필요")
+
+    names: list[str] = []
+    types: list[str] = []
+    pk_names: list[str] = []
+
+    for col_idx in range(df.shape[1]):
+        if cell_str(df.iat[1, col_idx]).upper() != SERVER_MARKER:
+            continue
+        col_name = cell_str(df.iat[3, col_idx])
+        if not col_name:
+            raise ValueError(f"컬럼 인덱스 {col_idx}: 컬럼명(4행)이 비어있음")
+        type_cell = cell_str(df.iat[2, col_idx]).upper()
+        is_pk = PK_MARKER in type_cell
+        type_name = type_cell.replace(PK_MARKER, "").strip()
+
+        names.append(col_name)
+        types.append(go_type_for(type_name))
+        if is_pk:
+            pk_names.append(col_name)
+
+    if not names:
+        raise ValueError("SERVER 사용 컬럼이 없음")
+    if len(pk_names) != 1:
+        raise ValueError(
+            f"PK는 정확히 1개여야 함 (현재 {len(pk_names)}개: {pk_names})"
+        )
+
+    return names, types, pk_names[0]
+
+
 def render_struct(type_name: str, columns: list[tuple[str, str]], pk_column: str) -> str:
     """Go struct 코드 문자열을 생성한다.
 
     columns: [(원본_컬럼명, go_타입), ...]
-    pk_column: 첫 번째 컬럼명 (PK 표시용)
+    pk_column: PK 컬럼명 (주석 표시용)
     """
-    # 컬럼명 → Go 필드명 폭 맞춤
     field_specs = []
     max_field_len = 0
     max_type_len = 0
@@ -151,42 +198,12 @@ def render_file(package: str, type_name: str, struct_body: str, source_file: str
     )
 
 
-def is_empty_column_name(col) -> bool:
-    """헤더 셀이 비어있는 컬럼인지 판별한다.
-
-    pandas는 빈 헤더 셀을 'Unnamed: N' 형태로 자동 채우거나 NaN으로 둔다.
-    둘 다 제외 대상.
-    """
-    if col is None:
-        return True
-    if isinstance(col, float) and pd.isna(col):
-        return True
-    s = str(col).strip()
-    if not s:
-        return True
-    if s.startswith("Unnamed:"):
-        return True
-    return False
-
-
 def process(xlsx_path: Path, output_dir: Path, package: str) -> Path:
     """xlsx 한 파일을 처리하여 .go 파일을 생성한다. 출력 경로 반환."""
-    df = pd.read_excel(xlsx_path, sheet_name=0)
-    if df.empty or len(df.columns) == 0:
-        raise ValueError(f"{xlsx_path}: 컬럼 없음")
+    df = pd.read_excel(xlsx_path, sheet_name=0, header=None)
+    names, types, pk_col = select_columns(df)
 
-    columns: list[tuple[str, str]] = []
-    for col in df.columns:
-        if is_empty_column_name(col):
-            continue
-        gotype = go_type_for_series(df[col])
-        columns.append((str(col), gotype))
-
-    if not columns:
-        raise ValueError(f"{xlsx_path}: 유효한 컬럼이 없음")
-
-    # 빈 컬럼 제외 후 첫 번째가 PK
-    pk_col = columns[0][0]
+    columns = list(zip(names, types))
 
     type_name = derive_type_name(xlsx_path.stem)
     struct_body = render_struct(type_name, columns, pk_col)
@@ -201,7 +218,7 @@ def main():
     parser = argparse.ArgumentParser(description="Excel → Go struct 코드 생성 도구")
     parser.add_argument("--input-dir", default="input", help="xlsx 입력 디렉토리")
     parser.add_argument("--output-dir", default="output", help=".go 출력 디렉토리")
-    parser.add_argument("--package", default="design", help="생성된 파일의 Go 패키지명")
+    parser.add_argument("--package", default="schema", help="생성된 파일의 Go 패키지명")
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -217,12 +234,17 @@ def main():
         print(f"xlsx 파일이 없습니다: {input_dir}", file=sys.stderr)
         sys.exit(1)
 
+    fail = 0
     for xlsx_path in xlsx_files:
         try:
             out_path = process(xlsx_path, output_dir, args.package)
-            print(f"ok: {xlsx_path} → {out_path}")
+            print(f"ok:  {xlsx_path} → {out_path}")
         except Exception as e:
             print(f"err: {xlsx_path}: {e}", file=sys.stderr)
+            fail += 1
+
+    if fail > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

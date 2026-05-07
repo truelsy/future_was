@@ -2,6 +2,7 @@ package account
 
 import (
 	"future_next_baseball/internal/handler"
+	"future_next_baseball/internal/log"
 	"future_next_baseball/pb"
 
 	"github.com/labstack/echo/v4"
@@ -26,11 +27,16 @@ func (h *accountHandler) Login(c echo.Context, body []byte) (proto.Message, erro
 
 	// 재화 지급
 	// todo: 임시코드
-	if err := h.assetSvc.AddAsset(u, 10000, 100); err != nil {
+	asset := u.Catalog().Currency().Get(10000)
+	if err := h.assetSvc.AddAsset(u, uint32(asset.ItemId), 100); err != nil {
 		return nil, err
 	}
+	_ = h.assetSvc.ConsumeAsset(u, uint32(asset.ItemId), 30)
 
-	h.assetSvc.ConsumeAsset(u, 10000, 30)
+	// 카드 한장 조회
+	// todo: 임시 코드
+	batter := u.Catalog().BatData().Get(100739)
+	log.Info().Interface("batter", batter).Msg("batter")
 
 	return &pb.LoginResponse{
 		UserId:     account.UserID,

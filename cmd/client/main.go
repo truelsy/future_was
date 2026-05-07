@@ -75,27 +75,39 @@ var actions = []action{
 
 func main() {
 	addr := flag.String("addr", "http://localhost:8089/api", "server endpoint")
+	clientVersion := flag.String("cv", "1.0.0", "client_version (envelope)")
 	flag.Parse()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	jsonOpts := protojson.MarshalOptions{Multiline: true, Indent: "  "}
 
 	fmt.Println("=== Future Next Baseball Client ===")
-	fmt.Printf("Server: %s\n", *addr)
+	fmt.Printf("Server        : %s\n", *addr)
+	fmt.Printf("client_version: %s (change with [v])\n", *clientVersion)
 
 	for {
 		fmt.Println()
 		for _, a := range actions {
 			fmt.Printf("  [%d] %s\n", a.id, a.name)
 		}
+		fmt.Printf("  [v] change client_version (current: %s)\n", *clientVersion)
 		fmt.Println("  [0] Exit")
 		fmt.Println()
 
-		id, err := promptUint32(scanner, "Action")
+		fmt.Print("Action> ")
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "v" || input == "V" {
+			*clientVersion = promptString(scanner, "new client_version")
+			fmt.Printf("client_version set to: %s\n", *clientVersion)
+			continue
+		}
+		id64, err := strconv.ParseUint(input, 10, 32)
 		if err != nil {
 			fmt.Println("invalid input")
 			continue
 		}
+		id := uint32(id64)
 		if id == 0 {
 			fmt.Println("Bye!")
 			return
@@ -120,10 +132,11 @@ func main() {
 		}
 
 		envelope := &pb.GameRequest{
-			Action:    act.id,
-			UserId:    act.userID,
-			Timestamp: time.Now().Unix(),
-			Body:      innerBytes,
+			Action:        act.id,
+			UserId:        act.userID,
+			Timestamp:     time.Now().Unix(),
+			ClientVersion: *clientVersion,
+			Body:          innerBytes,
 		}
 		envBytes, err := proto.Marshal(envelope)
 		if err != nil {

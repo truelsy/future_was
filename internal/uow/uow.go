@@ -11,6 +11,7 @@ import (
 
 	"future_next_baseball/internal/container"
 	"future_next_baseball/internal/database"
+	"future_next_baseball/internal/design"
 	"future_next_baseball/internal/model"
 
 	"github.com/jmoiron/sqlx"
@@ -28,21 +29,24 @@ type dbOp struct {
 // UnitOfWork 요청 내에서 읽기(지연 로딩)와 쓰기(ops 큐잉)를 축적한다.
 // Commit 시 DB별 트랜잭션으로 쓰기를 실행하고, 성공 시 캐시를 갱신한다.
 type UnitOfWork struct {
-	c      *container.Container
-	userID uint64
-	store  map[string]any // 필드명 → 로딩된 데이터 (*T 또는 []T)
-	ops    []dbOp
+	c       *container.Container
+	userID  uint64
+	catalog *design.Catalog
+	store   map[string]any // 필드명 → 로딩된 데이터 (*T 또는 []T)
+	ops     []dbOp
 }
 
 // New 요청 단위 UnitOfWork를 생성한다. userID는 미확정 시 0 가능
 // (예: 로그인 시). 확정 후 SetUserID를 호출한다.
-func New(c *container.Container, userID uint64) *UnitOfWork {
-	return &UnitOfWork{c: c, userID: userID, store: make(map[string]any)}
+// catalog는 요청의 client_version으로 라우팅된 디자인 Catalog이다.
+func New(c *container.Container, userID uint64, catalog *design.Catalog) *UnitOfWork {
+	return &UnitOfWork{c: c, userID: userID, catalog: catalog, store: make(map[string]any)}
 }
 
 func (u *UnitOfWork) UserID() uint64                  { return u.userID }
 func (u *UnitOfWork) SetUserID(id uint64)             { u.userID = id }
 func (u *UnitOfWork) Container() *container.Container { return u.c }
+func (u *UnitOfWork) Catalog() *design.Catalog        { return u.catalog }
 
 // ShardDB 유저의 Shard정보를 가져온다.
 func (u *UnitOfWork) ShardDB() *database.Database {
@@ -81,7 +85,7 @@ func LoadOne[T database.Model](u *UnitOfWork, field string, db *database.Databas
 
 // LoadList 엔티티 슬라이스를 지연 로딩한다 (UoW store → Redis → DB).
 // T는 포인터 타입으로 database.Model을 구현해야 한다 (예: *model.Asset).
-// store에 []T를 저장하므로, 요소를 수정하면 store 스냅샷에 자동 반영된다.
+// store에 []T를 저장하므로, 요소를 수정하면 store에 자동 반영된다.
 func LoadList[T database.Model](u *UnitOfWork, field string, db *database.Database) ([]T, error) {
 	if v, ok := u.store[field]; ok {
 		return v.([]T), nil
@@ -206,7 +210,7 @@ func Update[T database.Model](u *UnitOfWork, m T, db *database.Database, columns
 // ---------------------------------------------------------------------------
 
 // Commit 은 큐잉된 모든 작업을 DB 트랜잭션으로 실행한다 (DB별 그룹핑).
-// 성공 시 로딩된 스냅샷을 유저 캐시에 HSet으로 기록한다.
+// 성공 시 로딩된 데이터를 유저 캐시에 HSet으로 기록한다.
 // 실패 시 에러를 반환하며, 호출자가 캐시 무효화를 담당한다
 // (예: handler.CommitOrRollback).
 func (u *UnitOfWork) Commit() error {

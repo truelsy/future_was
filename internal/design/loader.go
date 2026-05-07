@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"future_next_baseball/internal/design/schema"
 	"future_next_baseball/internal/log"
 )
 
@@ -23,7 +24,7 @@ type Manifest struct {
 	} `json:"files"`
 }
 
-// Loader 지정 버전의 디자인 파일을 CDN에서 다운로드하여 Snapshot으로 구성한다.
+// Loader 지정 버전의 디자인 파일을 CDN에서 다운로드하여 Catalog으로 구성한다.
 type Loader struct {
 	baseURL    string
 	httpClient *http.Client
@@ -38,30 +39,27 @@ func NewLoader(baseURL string, timeoutSeconds int) *Loader {
 	}
 }
 
-// Load CDN에서 manifest 조회 후 각 파일을 다운로드/검증/파싱하여 Snapshot 반환.
-func (l *Loader) Load(ctx context.Context, version string) (*Snapshot, error) {
+// Load CDN에서 manifest 조회 후 각 파일을 다운로드/검증/파싱하여 Catalog 반환.
+func (l *Loader) Load(ctx context.Context, version string) (*Catalog, error) {
 	manifest, err := l.fetchManifest(ctx, version)
 	if err != nil {
 		return nil, fmt.Errorf("fetch manifest: %w", err)
 	}
 
-	snap := &Snapshot{
-		Version: version,
-		batData: map[uint32]*BatDataDesign{},
-	}
+	catalog := NewCatalog(version)
 
 	for _, f := range manifest.Files {
 		data, err := l.fetchFile(ctx, version, f.Name, f.Checksum)
 		if err != nil {
 			return nil, fmt.Errorf("fetch %s: %w", f.Name, err)
 		}
-		if err := unmarshalInto(snap, f.Name, data); err != nil {
+		if err := unmarshalInto(catalog, f.Name, data); err != nil {
 			return nil, fmt.Errorf("unmarshal %s: %w", f.Name, err)
 		}
 		log.Info().Msgf("design loaded file:%s", f.Name)
 	}
 
-	return snap, nil
+	return catalog, nil
 }
 
 func (l *Loader) fetchManifest(ctx context.Context, version string) (*Manifest, error) {
@@ -121,17 +119,30 @@ func verifyChecksum(data []byte, expected string) error {
 	return nil
 }
 
-// unmarshalInto 파일명에 따라 적절한 도메인 map에 JSON 데이터를 채운다.
+// unmarshalInto 파일명에 따라 적절한 도메인 Table에 JSON 데이터를 채운다.
 // 새 도메인 추가 시 case를 추가하면 된다.
-func unmarshalInto(s *Snapshot, name string, data []byte) error {
+func unmarshalInto(c *Catalog, name string, data []byte) error {
 	switch name {
-	case "bat_data.json":
-		var list []*BatDataDesign
+	case "BAT_DATA.json":
+		var list []*schema.BatDataDesign
 		if err := json.Unmarshal(data, &list); err != nil {
 			return err
 		}
-		for _, c := range list {
-			s.batData[c.Nid] = c
+		for _, v := range list {
+			c.batData.set(v.Nid, v)
+
+			// UseFlag = true인 카드들 별도 관리
+			if v.Useflag {
+				c.batDataByUseFlag.set(v.Nid, v)
+			}
+		}
+	case "CURRENCY_LIST.json":
+		var list []*schema.CurrencyListDesign
+		if err := json.Unmarshal(data, &list); err != nil {
+			return err
+		}
+		for _, v := range list {
+			c.currency.set(v.ItemId, v)
 		}
 	default:
 		// 알 수 없는 파일은 무시 (향후 추가될 도메인 대비).

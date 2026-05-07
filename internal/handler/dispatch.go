@@ -58,6 +58,13 @@ func dispatch(c echo.Context) error {
 		return sendGameError(c, req.Action, http.StatusBadRequest, "unknown action")
 	}
 
+	// client_version → design Catalog 라우팅. 모든 액션이 디자인 카탈로그에 접근하므로
+	// 디스패처에서 1회 결정 후 UoW에 주입한다.
+	catalog := ctn.DesignStore.GetByClientVersion(req.ClientVersion)
+	if catalog == nil {
+		return sendGameError(c, req.Action, CodeUnsupportedVersion, "unsupported client_version")
+	}
+
 	// 유저별 분산락 획득 (멀티 서버 동시 요청 직렬화).
 	// userID가 0이면 (예: Login) 락 스킵.
 	if req.UserId != 0 {
@@ -71,8 +78,8 @@ func dispatch(c echo.Context) error {
 		}()
 	}
 
-	// UoW 생성 → context에 저장. 핸들러에서 꺼내 사용한다.
-	u := uow.New(ctn, req.UserId)
+	// UoW 생성 (catalog 포함) → context에 저장. 핸들러에서 꺼내 사용한다.
+	u := uow.New(ctn, req.UserId, catalog)
 	c.Set("uow", u)
 
 	// 요청 body를 JSON으로 변환하여 context에 저장 (로깅용)

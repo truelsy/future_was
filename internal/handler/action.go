@@ -2,12 +2,14 @@ package handler
 
 import (
 	"fmt"
+
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"
 )
 
 // ActionHandler 디스패치되는 모든 핸들러의 시그니처이다.
 // body는 GameRequest에서 추출한 inner protobuf 바이트를 담고 있다.
+// 디자인 Catalog은 UoW를 통해 접근한다 (handler.UoW(c).Catalog()).
 // 응답 proto 메시지 또는 에러를 반환한다.
 type ActionHandler func(c echo.Context, body []byte) (proto.Message, error)
 

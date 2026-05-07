@@ -17,9 +17,11 @@ const PubSubChannel = "design:reload"
 // reloadPayload Pub/Sub 메시지 페이로드. 단순 트리거 신호.
 const reloadPayload = "reload"
 
+// MaxActiveVersions LoadActive에서 메모리에 유지할 server_version 최대 개수.
+const MaxActiveVersions = 2
+
 // Syncer TB_VERSION 기반 디자인 버전 자동 로드 + 멀티 서버 동기화.
-// Trigger는 본인 서버 갱신 + 다른 서버에 PUBLISH.
-// Start로 백그라운드 SUBSCRIBE 시작.
+// is_active=1인 server_version 중 최신 MaxActiveVersions개를 메모리에 유지한다.
 type Syncer struct {
 	store    *Store
 	loader   *Loader
@@ -49,58 +51,61 @@ func (s *Syncer) Trigger(ctx context.Context) error {
 	return s.redis.Publish(ctx, PubSubChannel, reloadPayload).Err()
 }
 
-// LoadActive TB_VERSION에서 is_active=1인 행을 조회하여
-// 최신 server_version → current, 그 다음 → previous로 로드한다.
-// versionMap (client_version → server_version)도 갱신한다.
+// LoadActive TB_VERSION에서 is_active=1인 행을 조회하여,
+// 최신 N개 server_version의 Catalog을 로드하고 client_version → Catalog 매핑을 갱신한다.
+// 기존에 로드된 Catalog은 재사용한다 (CDN 재다운로드 회피).
 func (s *Syncer) LoadActive(ctx context.Context) error {
 	rows, err := s.versions.FindActiveOrderedByServerVersion()
 	if err != nil {
 		return fmt.Errorf("query TB_VERSION: %w", err)
 	}
 
-	// server_version 정렬 순서 보존하면서 중복 제거 + client_version 매핑 구성.
+	// server_version 정렬 순서 보존 + server_version별 client_version 그룹핑.
 	var orderedSV []string
 	seen := map[string]bool{}
-	versionMap := map[string]string{}
+	cvBySV := map[string][]string{}
 	for _, v := range rows {
 		if !seen[v.ServerVersion] {
 			seen[v.ServerVersion] = true
 			orderedSV = append(orderedSV, v.ServerVersion)
 		}
-		versionMap[v.ClientVersion] = v.ServerVersion
+		cvBySV[v.ServerVersion] = append(cvBySV[v.ServerVersion], v.ClientVersion)
 	}
 
 	if len(orderedSV) == 0 {
 		return errors.New("no active version in TB_VERSION")
 	}
 
-	// 1) 최신 → current
-	currentSV := orderedSV[0]
-	if s.store.CurrentVersion() != currentSV {
-		snap, err := s.loader.Load(ctx, currentSV)
-		if err != nil {
-			return fmt.Errorf("load current %s: %w", currentSV, err)
-		}
-		s.store.Promote(snap)
-		log.Info().Msgf("design current loaded: %s", currentSV)
+	// 최신 MaxActiveVersions개만 유지.
+	if len(orderedSV) > MaxActiveVersions {
+		orderedSV = orderedSV[:MaxActiveVersions]
 	}
 
-	// 2) 직전 → previous (있는 경우만)
-	// CDN에 해당 버전 데이터가 없어도 서비스를 막지 않는다 (로그만 남김).
-	if len(orderedSV) >= 2 {
-		prevSV := orderedSV[1]
-		if s.store.PreviousVersion() != prevSV {
-			snap, err := s.loader.Load(ctx, prevSV)
+	// 기존 Catalog 재사용 (CDN 재다운로드 회피).
+	existing := s.store.CatalogsByServerVersion()
+
+	newMap := map[string]*Catalog{}
+	for i, sv := range orderedSV {
+		catalog, ok := existing[sv]
+		if !ok {
+			catalog, err = s.loader.Load(ctx, sv)
 			if err != nil {
-				log.Warn().Err(err).Msgf("design previous load skipped: %s", prevSV)
-			} else {
-				s.store.SetPrevious(snap)
-				log.Info().Msgf("design previous loaded: %s", prevSV)
+				// 최신 버전 로드 실패는 치명적, 그 외는 경고만.
+				if i == 0 {
+					return fmt.Errorf("load latest %s: %w", sv, err)
+				}
+				log.Warn().Err(err).Msgf("design load skipped: %s", sv)
+				continue
 			}
+			log.Info().Msgf("design loaded: %s", sv)
+		}
+		for _, cv := range cvBySV[sv] {
+			newMap[cv] = catalog
 		}
 	}
 
-	s.store.SetVersionMap(versionMap)
+	s.store.Replace(newMap)
+	log.Info().Msgf("design active versions: %v", orderedSV)
 	return nil
 }
 
