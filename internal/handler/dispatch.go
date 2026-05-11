@@ -40,29 +40,29 @@ func SetupAll(e *echo.Echo, c *container.Container) {
 func dispatch(c echo.Context) error {
 	raw, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return sendGameError(c, 0, http.StatusBadRequest, "failed to read body")
+		return SendGameError(c, 0, CodeBadRequest, "failed to read body")
 	}
 
 	var req pb.GameRequest
 	if err := proto.Unmarshal(raw, &req); err != nil {
-		return sendGameError(c, 0, http.StatusBadRequest, "invalid envelope")
+		return SendGameError(c, 0, CodeBadRequest, "invalid envelope")
 	}
 
 	// 미들웨어(logger 등)에서 참조할 수 있도록 context에 저장한다.
-	c.Set("action_id", req.Action)
-	c.Set("user_id", req.UserId)
-	c.Set("client_version", req.ClientVersion)
+	SetActionID(c, req.Action)
+	SetUserID(c, req.UserId)
+	SetClientVersion(c, req.ClientVersion)
 
 	def, ok := actionRegistry[req.Action]
 	if !ok {
-		return sendGameError(c, req.Action, http.StatusBadRequest, "unknown action")
+		return SendGameError(c, req.Action, CodeBadRequest, "unknown action")
 	}
 
 	// client_version → design Catalog 라우팅. 모든 액션이 디자인 카탈로그에 접근하므로
 	// 디스패처에서 1회 결정 후 UoW에 주입한다.
 	catalog := ctn.DesignStore.GetByClientVersion(req.ClientVersion)
 	if catalog == nil {
-		return sendGameError(c, req.Action, CodeUnsupportedVersion, "unsupported client_version")
+		return SendGameError(c, req.Action, CodeUnsupportedVersion, "unsupported client_version")
 	}
 
 	// 유저별 분산락 획득 (멀티 서버 동시 요청 직렬화).
@@ -71,7 +71,7 @@ func dispatch(c echo.Context) error {
 		token, err := ctn.UserLock.Acquire(c.Request().Context(), req.UserId)
 		if err != nil {
 			log.Warn().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("lock acquire failed: %v", err)
-			return sendGameError(c, req.Action, CodeBusy, "busy, retry later")
+			return SendGameError(c, req.Action, CodeBusy, "busy, retry later")
 		}
 		defer func() {
 			_ = ctn.UserLock.Release(c.Request().Context(), req.UserId, token)
@@ -80,14 +80,14 @@ func dispatch(c echo.Context) error {
 
 	// UoW 생성 (catalog 포함) → context에 저장. 핸들러에서 꺼내 사용한다.
 	u := uow.New(ctn, req.UserId, catalog)
-	c.Set("uow", u)
+	SetUoW(c, u)
 
 	// 요청 body를 JSON으로 변환하여 context에 저장 (로깅용)
 	if def.newReq != nil {
 		reqMsg := def.newReq()
 		if err := proto.Unmarshal(req.Body, reqMsg); err == nil {
 			if jsonBytes, err := protojson.Marshal(reqMsg); err == nil {
-				c.Set("req_json", jsonBytes)
+				SetReqJSON(c, jsonBytes)
 			}
 		}
 	}
@@ -97,28 +97,28 @@ func dispatch(c echo.Context) error {
 		var ae *ActionError
 		if errors.As(err, &ae) {
 			log.Warn().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Int32("code", ae.Code).Msgf("action error: %s", ae.Message)
-			return sendGameError(c, req.Action, ae.Code, ae.Message)
+			return SendGameError(c, req.Action, ae.Code, ae.Message)
 		}
 		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("internal error: %v", err)
-		return sendGameError(c, req.Action, http.StatusInternalServerError, "internal error")
+		return SendGameError(c, req.Action, CodeInternalError, "internal error")
 	}
 
 	// 핸들러 성공 후 UoW 커밋
 	if err := CommitOrRollback(u); err != nil {
-		return sendGameError(c, req.Action, CodeInternalError, "commit failed")
+		return SendGameError(c, req.Action, CodeInternalError, "commit failed")
 	}
 
 	// 응답을 JSON으로 변환하여 context에 저장 (로깅용)
 	if resJSON, err := protojson.Marshal(result); err == nil {
-		c.Set("res_json", resJSON)
+		SetResJSON(c, resJSON)
 	}
 
 	body, err := proto.Marshal(result)
 	if err != nil {
-		return sendGameError(c, req.Action, http.StatusInternalServerError, "marshal error")
+		return SendGameError(c, req.Action, CodeInternalError, "marshal error")
 	}
 
-	return sendGameResponse(c, req.Action, http.StatusOK, body)
+	return sendGameResponse(c, req.Action, CodeOK, body)
 }
 
 func sendGameResponse(c echo.Context, action uint32, code int32, body []byte) error {
@@ -135,15 +135,10 @@ func sendGameResponse(c echo.Context, action uint32, code int32, body []byte) er
 	return c.Blob(http.StatusOK, "application/x-protobuf", data)
 }
 
-func sendGameError(c echo.Context, action uint32, code int32, message string) error {
+func SendGameError(c echo.Context, action uint32, code int32, message string) error {
 	errBody, _ := proto.Marshal(&pb.ErrorResponse{
 		Code:    code,
 		Message: message,
 	})
 	return sendGameResponse(c, action, code, errBody)
-}
-
-// UoW context에서 UnitOfWork를 꺼낸다. 핸들러에서 사용한다.
-func UoW(c echo.Context) *uow.UnitOfWork {
-	return c.Get("uow").(*uow.UnitOfWork)
 }

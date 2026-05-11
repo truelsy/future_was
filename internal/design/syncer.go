@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"future_next_baseball/internal/log"
 	"future_next_baseball/internal/repository"
@@ -27,6 +28,7 @@ type Syncer struct {
 	loader   *Loader
 	redis    *redis.Client
 	versions *repository.VersionRepository
+	wg       sync.WaitGroup
 }
 
 func NewSyncer(store *Store, loader *Loader, redisClient *redis.Client, versions *repository.VersionRepository) *Syncer {
@@ -40,7 +42,17 @@ func NewSyncer(store *Store, loader *Loader, redisClient *redis.Client, versions
 
 // Start 백그라운드 고루틴으로 Pub/Sub 구독을 시작한다.
 func (s *Syncer) Start(ctx context.Context) {
-	go s.subscribe(ctx)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.subscribe(ctx)
+	}()
+}
+
+// Wait subscribe 고루틴이 종료될 때까지 블록한다.
+// 호출자는 ctx cancel 후 이 메서드로 정리 완료를 보장받는다.
+func (s *Syncer) Wait() {
+	s.wg.Wait()
 }
 
 // Trigger TB_VERSION 기반으로 본 서버를 갱신하고 다른 서버에 알린다.

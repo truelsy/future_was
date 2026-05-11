@@ -36,7 +36,7 @@ return 0
 `)
 
 func NewUserLock() *UserLock {
-	return &UserLock{client: Get(NameUserLock)}
+	return &UserLock{client: Get(NameLock)}
 }
 
 func userLockKey(userID uint64) string {

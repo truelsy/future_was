@@ -34,4 +34,7 @@ const (
 
 	// 디자인/버전 (4xxx)
 	CodeUnsupportedVersion int32 = 4001
+
+	// 점검중
+	CodeMaintenance int32 = 5001
 )

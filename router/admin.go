@@ -22,4 +22,11 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 		}
 		return ec.String(http.StatusOK, "OK: reloaded from TB_VERSION")
 	})
+
+	g.POST("/resource/reload", func(ec echo.Context) error {
+		if err := c.ResourceSyncer.Trigger(ec.Request().Context()); err != nil {
+			return ec.String(http.StatusInternalServerError, err.Error())
+		}
+		return ec.String(http.StatusOK, "OK: resource reloaded")
+	})
 }

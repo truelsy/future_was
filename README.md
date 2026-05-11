@@ -119,6 +119,205 @@ message GameResponse {
 
 ---
 
+## Unit of Work (UoW) 패턴
+
+### 한 줄 요약
+**한 요청에서 일어나는 모든 DB 읽기/쓰기를 모았다가, 마지막에 한 번에 트랜잭션으로 커밋한다.**
+
+### 왜 필요한가
+서비스 코드가 매번 직접 DB·캐시·트랜잭션을 다루면:
+- 같은 데이터를 한 요청에서 여러 번 조회하는 낭비 (예: `Account`을 3개 서비스에서 각자 SELECT)
+- 캐시 갱신 누락
+- 부분 실패 시 일관성 깨짐
+
+UoW가 이 모든 것을 **요청 단위로 한 번만** 처리해 준다.
+
+### 컨셉
+
+```
+서비스가 "지금 카드 데이터 줘"라고 하면
+   └─ UoW가 알아서:
+        1) 메모리 store에 있어? → 있으면 그대로 반환
+        2) Redis 캐시에 있어? → 있으면 store에 채우고 반환
+        3) 둘 다 없어? → DB SELECT → 캐시 + store에 저장 → 반환
+
+서비스가 "이 카드 레벨 +1 해줘"라고 하면
+   └─ UoW가:
+        1) store의 카드를 즉시 수정 (이후 동일 요청 내 모든 조회는 변경분 반영)
+        2) "UPDATE 큐"에 작업만 등록 (DB는 아직 안 건드림)
+
+요청 끝(dispatch가 자동 호출):
+   └─ UoW.Commit():
+        1) 큐에 쌓인 모든 쓰기를 DB별 트랜잭션으로 실행
+        2) 성공 시 캐시(Redis Hash)에 일괄 반영
+        3) 실패 시 캐시 무효화 (DeleteAll)
+```
+
+### 핵심 메서드
+
+| 메서드 | 동작 |
+|--------|------|
+| `LoadOne[T](u, field, db)` | 단일 엔티티 지연 로딩: store → Redis → DB |
+| `LoadList[T](u, field, db)` | 슬라이스 지연 로딩 |
+| `Create[T](u, field, m, db)` | INSERT 큐잉. PK는 `Commit()` 후 반영 |
+| `CreateNow[T](u, field, m, db)` | 즉시 INSERT (PK가 바로 필요할 때, 예: 신규 계정 생성) |
+| `Update[T](u, m, db, cols...)` | UPDATE 큐잉 |
+| `u.Commit()` | 모든 ops를 DB별 트랜잭션 실행 + 캐시 반영 |
+| `u.Account()` / `u.Cards()` / `u.Assets()` | 도메인별 편의 래퍼 (LoadOne/LoadList 호출) |
+| `u.Catalog()` | 디자인 데이터 카탈로그 |
+| `u.ShardDB()` | 유저의 Account.DBShardID로 라우팅된 shard |
+
+### 사용 예시
+
+```go
+// 핸들러에서
+u := handler.UoW(c)
+
+// 1) 카드 + 디자인 조회 (지연 로딩, 모두 메모리/Redis에서 옴)
+cards, _ := u.Cards()
+batter := u.Catalog().BatData().Get(100007)
+
+// 2) 카드 강화 (메모리에서 수정 + UPDATE 큐잉)
+cards[0].Level += 1
+uow.Update(u, cards[0], u.ShardDB())
+
+// 3) 응답 생성 후 종료 → dispatch가 자동으로 u.Commit() 호출
+//    실제 DB UPDATE + Redis HSET이 여기서 일어남
+```
+
+### Container vs UoW vs Store — 역할 구분
+
+```
+                 ┌─────────────────────────────────────────────┐
+  서버 시작 시 ──▶│              Container (전역)               │
+                 │  - GameDB, ShardDB (database.Database)      │
+                 │  - UserCache, UserLock (cache.*)            │
+                 │  - DesignStore, DesignSyncer                │
+                 │   (모든 요청이 공유. main.go에서 1회 생성)    │
+                 └─────────────────────────────────────────────┘
+                                     │
+                                     │ 요청마다 1개씩
+                                     ▼
+                 ┌─────────────────────────────────────────────┐
+       요청 ────▶│            UnitOfWork (요청 단위)            │
+                 │  - userID                                   │
+                 │  - catalog (이번 요청의 디자인 카탈로그)        │
+                 │  - store map[field]any (로딩된 모델 캐시)     │
+                 │  - ops []dbOp (쓰기 큐)                     │
+                 │  - 내부에서 Container 참조                   │
+                 └─────────────────────────────────────────────┘
+                                     │
+                                     │ 핸들러/서비스가 사용
+                                     ▼
+                          데이터 흐름은 아래 다이어그램 참조
+```
+
+| 객체 | 수명 | 공유 | 책임 |
+|------|------|------|------|
+| **Container** | 서버 전체 | 모든 요청이 공유 | 글로벌 자원 보유 (DB 커넥션 풀, Redis 클라이언트, 디자인 Store) |
+| **UnitOfWork** | 1 요청 | 요청 1개 전용 | 그 요청의 read 캐시 + write 큐 |
+| **Store** (`design.Store`) | 서버 전체 | 모든 요청이 공유 | client_version → Catalog 매핑 (디자인 데이터 라우팅) |
+| **Catalog** (`design.Catalog`) | reload까지 | 같은 server_version 요청들이 공유 | 한 server_version의 모든 디자인 데이터 묶음 |
+
+### 데이터 흐름 다이어그램
+
+```
+                          ┌──────────────────┐
+                          │   HTTP Request   │
+                          └────────┬─────────┘
+                                   │
+                                   ▼
+        ┌────────────────────────────────────────────────────┐
+        │ dispatch.go                                        │
+        │   1. envelope decode                               │
+        │   2. catalog := DesignStore.GetByClientVersion()   │  ◀── Container.DesignStore
+        │   3. UserLock.Acquire(userID)                      │  ◀── Container.UserLock
+        │   4. u := uow.New(Container, userID, catalog)      │
+        │   5. handler 호출                                  │
+        └────────────────────┬───────────────────────────────┘
+                             │
+                             ▼
+        ┌────────────────────────────────────────────────────┐
+        │ Handler / Service                                  │
+        │   u.Account() ──┐                                  │
+        │   u.Cards()  ───┤  (지연 로딩)                      │
+        │   u.Catalog().BatData().Get(...) (디자인 조회)       │
+        │   uow.Update(u, card, u.ShardDB())                 │
+        │   uow.Create(u, ..., asset, ...)  (UPDATE/INSERT 큐잉)│
+        └────────────────────┬───────────────────────────────┘
+                             │
+                             ▼
+        ┌────────────────────────────────────────────────────┐
+        │ UoW 내부                                           │
+        │                                                    │
+        │   ┌─ Read 흐름 ────────────────────────────┐        │
+        │   │  store ──hit?──▶ 반환                  │        │
+        │   │    │ miss                              │        │
+        │   │    ▼                                   │        │
+        │   │  UserCache(Redis) ──hit?──▶ store저장+반환 │     │
+        │   │    │ miss                              │        │
+        │   │    ▼                                   │        │
+        │   │  DB(SELECT) ──▶ Redis저장+store저장+반환  │       │
+        │   └────────────────────────────────────────┘        │
+        │                                                    │
+        │   ┌─ Write 흐름 (지연 실행) ─────────────────┐       │
+        │   │  store에 즉시 반영                      │       │
+        │   │  + ops에 함수 큐잉                      │       │
+        │   └────────────────────────────────────────┘       │
+        └────────────────────┬───────────────────────────────┘
+                             │ 핸들러 종료
+                             ▼
+        ┌────────────────────────────────────────────────────┐
+        │ dispatch가 u.Commit() 자동 호출                    │
+        │                                                    │
+        │   1) ops를 DB별 그룹핑 → 그룹별 Transaction 실행     │
+        │   2) 성공 시 UserCache.SetMulti(store) (Redis)     │
+        │   3) 실패 시 UserCache.DeleteAll(userID)           │
+        │                                                    │
+        │   ┌──────────┐         ┌──────────┐                │
+        │   │ GameDB   │         │ ShardDB  │                │
+        │   │ (TX 1)   │         │ (TX 2)   │                │
+        │   └──────────┘         └──────────┘                │
+        │        │                    │                      │
+        │        └─────────┬──────────┘                      │
+        │                  ▼                                 │
+        │          ┌─────────────┐                           │
+        │          │ Redis Hash  │  (user:{id} 필드별 갱신)   │
+        │          └─────────────┘                           │
+        └────────────────────┬───────────────────────────────┘
+                             │
+                             ▼
+                          ┌─────────────┐
+                          │  HTTP Resp  │
+                          └─────────────┘
+```
+
+### 캐시 필드 버전 컨벤션
+
+`internal/uow/field.go`의 상수에 버전 접미사를 박아둔다.
+
+```go
+const (
+    FieldAccount = "account.v1"
+    FieldAssets  = "assets.v1"
+    FieldCards   = "cards.v1"
+)
+```
+
+**스키마 변경 시** (예: `model.Card`에 컬럼 추가):
+```go
+FieldCards = "cards.v2"   // ← 한 줄 변경
+```
+배포 즉시 모든 서버가 새 키로 조회 → cache miss → DB 재로드 → 새 키로 저장. 옛 키는 30분 TTL로 자연 소멸. 운영 조작 불필요.
+
+### 주의 사항
+
+- **고루틴 안전 X**: UoW는 요청 1개 전용. 별도 고루틴으로 동시 사용 금지.
+- **부분 커밋 가능성**: 여러 DB(GameDB + ShardDB)에 ops가 흩어진 경우 DB별 트랜잭션이라 첫 DB 커밋 후 두 번째 실패 시 부분 반영. 정합성이 중요한 작업은 단일 DB로 정리하거나 멱등성 키 도입(별도 정책 결정 필요).
+- **PK 시점**: `Create` (큐잉)는 `Commit()` 후에야 PK가 채워진다. 후속 로직에서 PK가 필요하면 `CreateNow`(즉시 INSERT)를 사용.
+
+---
+
 ## 디자인 데이터 시스템
 
 서버는 TB_VERSION 테이블을 기준으로 **활성 server_version의 최신 N개**를 메모리에 보관합니다 (현재 `MaxActiveVersions = 2` — 현재 + 직전).

@@ -28,29 +28,51 @@ type dbOp struct {
 
 // UnitOfWork 요청 내에서 읽기(지연 로딩)와 쓰기(ops 큐잉)를 축적한다.
 // Commit 시 DB별 트랜잭션으로 쓰기를 실행하고, 성공 시 캐시를 갱신한다.
+//
+// scope 분리:
+//   - user scope: userID + store + UserCache (1유저당 1캐시)
+//   - club scope: clubID + clubStore + ClubCache (멤버 N명 공유)
+//
+// LoadOne/LoadList의 Owner 인자로 두 scope를 분기한다.
 type UnitOfWork struct {
-	c       *container.Container
-	userID  uint64
-	catalog *design.Catalog
-	store   map[string]any // 필드명 → 로딩된 데이터 (*T 또는 []T)
-	ops     []dbOp
+	c         *container.Container
+	userID    uint64
+	clubID    uint64
+	catalog   *design.Catalog
+	store     map[string]any // user scope
+	clubStore map[string]any // club scope
+	ops       []dbOp
 }
 
 // New 요청 단위 UnitOfWork를 생성한다. userID는 미확정 시 0 가능
 // (예: 로그인 시). 확정 후 SetUserID를 호출한다.
+// clubID는 클럽 액션 핸들러에서 SetClubID로 주입한다.
 // catalog는 요청의 client_version으로 라우팅된 디자인 Catalog이다.
 func New(c *container.Container, userID uint64, catalog *design.Catalog) *UnitOfWork {
-	return &UnitOfWork{c: c, userID: userID, catalog: catalog, store: make(map[string]any)}
+	return &UnitOfWork{
+		c:         c,
+		userID:    userID,
+		catalog:   catalog,
+		store:     make(map[string]any),
+		clubStore: make(map[string]any),
+	}
 }
 
 func (u *UnitOfWork) UserID() uint64                  { return u.userID }
 func (u *UnitOfWork) SetUserID(id uint64)             { u.userID = id }
+func (u *UnitOfWork) ClubID() uint64                  { return u.clubID }
+func (u *UnitOfWork) SetClubID(id uint64)             { u.clubID = id }
 func (u *UnitOfWork) Container() *container.Container { return u.c }
 func (u *UnitOfWork) Catalog() *design.Catalog        { return u.catalog }
 
-// ShardDB 유저의 Shard정보를 가져온다.
+// ShardDB 유저의 Account.DBShardID에 해당하는 Database를 반환한다.
+// 계정이 로드되지 않았거나 shard가 등록되지 않은 경우 nil을 반환한다.
+// 호출자가 nil 체크 후 사용해야 한다 (uow.Update 등은 nil DB 시 Commit에서 실패).
 func (u *UnitOfWork) ShardDB() *database.Database {
-	acc, _ := u.Account()
+	acc, err := u.Account()
+	if err != nil || acc == nil {
+		return nil
+	}
 	return database.GetShard(acc.DBShardID)
 }
 
@@ -58,55 +80,59 @@ func (u *UnitOfWork) ShardDB() *database.Database {
 // 제네릭 로더
 // ---------------------------------------------------------------------------
 
-// LoadOne 단일 엔티티를 지연 로딩한다 (UoW store → Redis → DB).
-// T는 포인터 타입으로 database.Model을 구현해야 한다 (예: *model.Account).
-func LoadOne[T database.Model](u *UnitOfWork, field string, db *database.Database) (T, error) {
-	if v, ok := u.store[field]; ok {
+// LoadOne 단일 엔티티를 지연 로딩한다 (scope store → Redis → DB).
+// owner로 user/club scope를 분기. T는 포인터 타입으로 database.Model을 구현해야 한다.
+func LoadOne[T database.Model](u *UnitOfWork, owner Owner, field string, db *database.Database) (T, error) {
+	s := u.scopeOf(owner)
+
+	if v, ok := s.store[field]; ok {
 		return v.(T), nil
 	}
 	var zero T
-	if u.userID == 0 {
-		return zero, ErrNoUserID
+	if s.id == 0 {
+		return zero, s.errNoID
 	}
 
 	dest := reflect.New(reflect.TypeOf(zero).Elem()).Interface().(T)
-	if err := u.c.UserCache.Get(u.userID, field, dest); err == nil {
-		u.store[field] = dest
+	if err := s.cache.Get(s.id, field, dest); err == nil {
+		s.store[field] = dest
 		return dest, nil
 	}
 
-	if err := db.FindOne(dest, "user_id = ?", u.userID); err != nil {
+	if err := db.FindOne(dest, s.where, s.id); err != nil {
 		return zero, err
 	}
-	u.store[field] = dest
-	_ = u.c.UserCache.Set(u.userID, field, dest)
+	s.store[field] = dest
+	_ = s.cache.Set(s.id, field, dest)
 	return dest, nil
 }
 
-// LoadList 엔티티 슬라이스를 지연 로딩한다 (UoW store → Redis → DB).
-// T는 포인터 타입으로 database.Model을 구현해야 한다 (예: *model.Asset).
-// store에 []T를 저장하므로, 요소를 수정하면 store에 자동 반영된다.
-func LoadList[T database.Model](u *UnitOfWork, field string, db *database.Database) ([]T, error) {
-	if v, ok := u.store[field]; ok {
+// LoadList 엔티티 슬라이스를 지연 로딩한다 (scope store → Redis → DB).
+// owner로 user/club scope를 분기. store에 []T를 저장하므로, 요소를 수정하면
+// scope store에 자동 반영된다.
+func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *database.Database) ([]T, error) {
+	s := u.scopeOf(owner)
+
+	if v, ok := s.store[field]; ok {
 		return v.([]T), nil
 	}
-	if u.userID == 0 {
-		return nil, ErrNoUserID
+	if s.id == 0 {
+		return nil, s.errNoID
 	}
 
 	var list []T
-	if err := u.c.UserCache.Get(u.userID, field, &list); err == nil {
-		u.store[field] = list
+	if err := s.cache.Get(s.id, field, &list); err == nil {
+		s.store[field] = list
 		return list, nil
 	}
 
 	var zero T
 	zeroVal := reflect.New(reflect.TypeOf(zero).Elem()).Interface().(T)
-	if err := db.FindList(&list, zeroVal, "user_id = ?", nil, u.userID); err != nil {
+	if err := db.FindList(&list, zeroVal, s.where, nil, s.id); err != nil {
 		return nil, err
 	}
-	u.store[field] = list
-	_ = u.c.UserCache.Set(u.userID, field, list)
+	s.store[field] = list
+	_ = s.cache.Set(s.id, field, list)
 	return list, nil
 }
 
@@ -115,7 +141,7 @@ func LoadList[T database.Model](u *UnitOfWork, field string, db *database.Databa
 // ---------------------------------------------------------------------------
 
 func (u *UnitOfWork) Account() (*model.Account, error) {
-	return LoadOne[*model.Account](u, FieldAccount, u.c.GameDB)
+	return LoadOne[*model.Account](u, OwnerUser, FieldAccount, u.c.GameDB)
 }
 func (u *UnitOfWork) Assets() ([]*model.Asset, error) {
 	acc, err := u.Account()
@@ -126,7 +152,7 @@ func (u *UnitOfWork) Assets() ([]*model.Asset, error) {
 	if shardDB == nil {
 		return nil, fmt.Errorf("assets: shard_id=%d에 해당하는 DB를 찾을 수 없음", acc.DBShardID)
 	}
-	return LoadList[*model.Asset](u, FieldAssets, shardDB)
+	return LoadList[*model.Asset](u, OwnerUser, FieldAssets, shardDB)
 }
 
 // Cards Account.DBShardID로 결정된 shard DB에서 카드를 로딩한다.
@@ -139,7 +165,7 @@ func (u *UnitOfWork) Cards() ([]*model.Card, error) {
 	if shardDB == nil {
 		return nil, fmt.Errorf("cards: shard_id=%d에 해당하는 DB를 찾을 수 없음", acc.DBShardID)
 	}
-	return LoadList[*model.Card](u, FieldCards, shardDB)
+	return LoadList[*model.Card](u, OwnerUser, FieldCards, shardDB)
 }
 
 // ---------------------------------------------------------------------------
@@ -250,10 +276,16 @@ func (u *UnitOfWork) Commit() error {
 		u.ops = nil
 	}
 
-	// ops가 없어도 store가 있으면 캐시에 반영한다.
-	if u.userID == 0 || len(u.store) == 0 {
-		return nil
+	// scope별 캐시 갱신.
+	if u.userID != 0 && len(u.store) > 0 {
+		if err := u.c.UserCache.SetMulti(u.userID, u.store); err != nil {
+			return fmt.Errorf("user cache set: %w", err)
+		}
 	}
-
-	return u.c.UserCache.SetMulti(u.userID, u.store)
+	if u.clubID != 0 && len(u.clubStore) > 0 {
+		if err := u.c.ClubCache.SetMulti(u.clubID, u.clubStore); err != nil {
+			return fmt.Errorf("club cache set: %w", err)
+		}
+	}
+	return nil
 }

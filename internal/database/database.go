@@ -14,9 +14,8 @@ type Database struct {
 }
 
 var (
-	instances = make(map[string]*Database)
-	shardMap  = make(map[int8]*Database)
-	mu        sync.RWMutex
+	shardMap = make(map[int8]*Database)
+	mu       sync.RWMutex
 )
 
 // Init 은 새 DB 연결을 생성하고 지정된 이름으로 등록한다.
@@ -25,21 +24,7 @@ func Init(name, dsn string) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect database [%s]: %w", name, err)
 	}
-
-	d := &Database{db: db}
-
-	mu.Lock()
-	instances[name] = d
-	mu.Unlock()
-
-	return d, nil
-}
-
-// Get 은 이름으로 등록된 Database 를 반환한다.
-func Get(name string) *Database {
-	mu.RLock()
-	defer mu.RUnlock()
-	return instances[name]
+	return &Database{db: db}, nil
 }
 
 // RegisterShard 는 shard ID를 Database 인스턴스에 매핑한다.
@@ -50,21 +35,24 @@ func RegisterShard(shardID int8, db *Database) {
 }
 
 // GetShard 지정된 shard ID에 해당하는 Database를 반환한다.
+// 등록되지 않은 shard ID이면 nil을 반환하므로 호출자가 nil 체크해야 한다.
+// 시작 시점에 필수 shard는 main.go에서 즉시 검증하도록 한다.
 func GetShard(shardID int8) *Database {
 	mu.RLock()
 	defer mu.RUnlock()
 	return shardMap[shardID]
 }
 
+func GetGameDB() *Database {
+	return GetShard(GameDBShardID)
+}
+
 // CloseAll 등록된 모든 Database 연결을 닫는다. 서버 종료 시 호출.
 func CloseAll() {
 	mu.Lock()
 	defer mu.Unlock()
-	for name, d := range instances {
+	for id, d := range shardMap {
 		_ = d.db.Close()
-		delete(instances, name)
-	}
-	for id := range shardMap {
 		delete(shardMap, id)
 	}
 }
@@ -160,13 +148,22 @@ func (d *Database) CountOf(model Model, where string, args ...any) (int64, error
 }
 
 // Transaction 주어진 함수를 DB 트랜잭션 내에서 실행한다.
-func (d *Database) Transaction(fn func(tx *sqlx.Tx) error) error {
+// fn 내부에서 panic이 발생해도 Rollback이 보장된다 (커넥션 누수 방지).
+func (d *Database) Transaction(fn func(tx *sqlx.Tx) error) (err error) {
 	tx, err := d.db.Beginx()
 	if err != nil {
 		return err
 	}
 
-	if err := fn(tx); err != nil {
+	// panic 발생 시에도 Rollback 후 panic을 다시 전파한다.
+	defer func() {
+		if r := recover(); r != nil {
+			_ = tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	if err = fn(tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"future_next_baseball/internal/handler"
 	"future_next_baseball/internal/log"
 	"io"
 	"time"
@@ -39,34 +40,20 @@ func LogMiddleware() echo.MiddlewareFunc {
 
 			latency := time.Since(startTime).Seconds() * 1000 // ms
 
-			// dispatch에서 설정한 공통 필드 조회
-			var actionID uint32
-			if v := c.Get("action_id"); v != nil {
-				actionID = v.(uint32)
-			}
-			var userID uint64
-			if v := c.Get("user_id"); v != nil {
-				userID = v.(uint64)
-			}
-
 			event := log.Info().
-				Uint32("action_id", actionID).
-				Uint64("user_id", userID).
+				Uint32("action_id", handler.ActionID(c)).
+				Uint64("user_id", handler.UserID(c)).
 				Int("status", c.Response().Status).
 				Float64("latency_ms", latency).
-				Str("ip", c.RealIP())
-
-			event = event.Int("req_size", requestBody.Len()).
+				Str("ip", c.RealIP()).
+				Int("req_size", requestBody.Len()).
 				Int64("res_size", c.Response().Size)
 
-			// dispatch에서 변환한 요청 JSON 조회
-			if reqJSON := c.Get("req_json"); reqJSON != nil {
-				event = event.RawJSON("req", reqJSON.([]byte))
+			if reqJSON := handler.ReqJSON(c); reqJSON != nil {
+				event = event.RawJSON("req", reqJSON)
 			}
-
-			// dispatch에서 변환한 응답 JSON 조회
-			if resJSON := c.Get("res_json"); resJSON != nil {
-				event = event.RawJSON("res", resJSON.([]byte))
+			if resJSON := handler.ResJSON(c); resJSON != nil {
+				event = event.RawJSON("res", resJSON)
 			}
 
 			event.Msg("api")

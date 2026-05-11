@@ -18,7 +18,7 @@ databases:
     dbname: "FNPB_GAME_S0"
 
 redis:
-  - name: "user_lock"
+  - name: "lock"
     host: "localhost"
     port: "6379"
     password: "npb@future"
@@ -28,7 +28,12 @@ redis:
     port: "6379"
     password: "npb@future"
     db: 1
-  - name: "design_sync"
+  - name: "club_cache"
+    host: "localhost"
+    port: "6379"
+    password: "npb@future"
+    db: 2
+  - name: "reload_pubsub"
     host: "localhost"
     port: "6379"
     password: "npb@future"

@@ -14,6 +14,21 @@ const (
 	defaultTTL    = 30 * time.Minute
 )
 
+// hsetWithTTLScript HSET + EXPIRE를 원자 실행한다.
+// 두 명령 사이 장애로 TTL 없는 Hash가 영구 잔존하는 상황을 방지한다.
+//   KEYS[1]   = key
+//   ARGV[1]   = ttl_seconds
+//   ARGV[2..] = field, value, field, value, ... (페어로 반복)
+var hsetWithTTLScript = redis.NewScript(`
+local key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+for i = 2, #ARGV, 2 do
+    redis.call("HSET", key, ARGV[i], ARGV[i+1])
+end
+redis.call("EXPIRE", key, ttl)
+return 1
+`)
+
 // UserCache Redis Hash를 사용하여 유저별 캐시 데이터를 관리한다.
 type UserCache struct {
 	client *redis.Client
@@ -45,6 +60,7 @@ func (c *UserCache) Get(userID uint64, field string, dest any) error {
 }
 
 // Set 유저 캐시에 특정 필드를 저장하고 TTL을 갱신한다.
+// HSET + EXPIRE를 Lua 스크립트로 원자 실행한다.
 func (c *UserCache) Set(userID uint64, field string, value any) error {
 	ctx := context.Background()
 	data, err := json.Marshal(value)
@@ -53,30 +69,32 @@ func (c *UserCache) Set(userID uint64, field string, value any) error {
 	}
 
 	key := userKey(userID)
-	if err := c.client.HSet(ctx, key, field, data).Err(); err != nil {
-		return err
-	}
-	return c.client.Expire(ctx, key, defaultTTL).Err()
+	ttl := int(defaultTTL.Seconds())
+	return hsetWithTTLScript.Run(ctx, c.client, []string{key}, ttl, field, data).Err()
 }
 
 // SetMulti 유저 캐시에 여러 필드를 한번에 저장하고 TTL을 설정한다.
+// 모든 HSET + EXPIRE를 Lua 스크립트로 원자 실행한다.
 func (c *UserCache) SetMulti(userID uint64, fields map[string]any) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
 	ctx := context.Background()
 	key := userKey(userID)
 
-	values := make(map[string]any, len(fields))
+	// ARGV: [ttl, field1, value1, field2, value2, ...]
+	args := make([]any, 0, 1+len(fields)*2)
+	args = append(args, int(defaultTTL.Seconds()))
 	for field, v := range fields {
 		data, err := json.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("failed to marshal cache field [%s]: %w", field, err)
 		}
-		values[field] = data
+		args = append(args, field, data)
 	}
 
-	if err := c.client.HSet(ctx, key, values).Err(); err != nil {
-		return err
-	}
-	return c.client.Expire(ctx, key, defaultTTL).Err()
+	return hsetWithTTLScript.Run(ctx, c.client, []string{key}, args...).Err()
 }
 
 // LoadAll 유저 캐시의 모든 필드를 원시 JSON 문자열로 반환한다.

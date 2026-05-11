@@ -5,6 +5,7 @@ import (
 	"errors"
 	"future_next_baseball/internal/log"
 	"future_next_baseball/internal/middleware"
+	"future_next_baseball/internal/resource"
 	"future_next_baseball/internal/util"
 	"net/http"
 	"os/signal"
@@ -56,11 +57,16 @@ func main() {
 	}
 	defer cache.CloseAll()
 
+	// TB_VERSION은 shard_id=0 (게임 DB)에 위치한다. 등록되지 않았으면 즉시 종료.
+	gameDB := database.GetGameDB()
+	if gameDB == nil {
+		log.Fatal().Msg("shard_id=0 (game DB) not registered")
+	}
+
 	// 디자인 데이터: TB_VERSION 기반 자동 로드 + Pub/Sub 동기화
 	designLoader := design.NewLoader(cfg.CDN.DesignBaseURL, cfg.CDN.HTTPTimeoutSeconds)
 	designStore := design.NewStore()
-	versionRepo := repository.NewVersionRepository(database.GetShard(0))
-	designSyncer := design.NewSyncer(designStore, designLoader, cache.Get(cache.NameDesignSync), versionRepo)
+	designSyncer := design.NewSyncer(designStore, designLoader, cache.Get(cache.NameReloadPubSub), repository.NewVersionRepository(gameDB))
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.CDN.HTTPTimeoutSeconds)*time.Second)
 		err := designSyncer.LoadActive(ctx)
@@ -69,16 +75,37 @@ func main() {
 			log.Fatal().Err(err).Msg("failed to load active design versions")
 		}
 	}
+
+	resourceLoader := resource.NewLoader(gameDB)
+	resourceStore := resource.NewStore()
+	resourceSyncer := resource.NewSyncer(resourceStore, resourceLoader, cache.Get(cache.NameReloadPubSub))
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := resourceSyncer.LoadAll(ctx)
+		cancel()
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to load resource data")
+		}
+	}
+
 	syncerCtx, syncerCancel := context.WithCancel(context.Background())
-	defer syncerCancel()
 	designSyncer.Start(syncerCtx)
+	resourceSyncer.Start(syncerCtx)
+
+	// 종료 시: ctx 취소 → syncer 고루틴 종료 대기.
+	defer func() {
+		syncerCancel()
+		designSyncer.Wait()
+		resourceSyncer.Wait()
+	}()
 
 	// Container 구성
-	ctn := container.New(designStore, designSyncer)
+	ctn := container.New(designStore, designSyncer, resourceStore, resourceSyncer)
 
 	e := echo.New()
 	e.Use(middleware.RecoverMiddleware())
 	e.Use(middleware.LogMiddleware())
+	e.Use(middleware.MaintenanceMiddleware(resourceStore))
 
 	e.GET("/", func(c echo.Context) error {
 		return sendProto(c, http.StatusOK, &pb.WelcomeResponse{
