@@ -31,6 +31,7 @@ const (
 	// 공통
 	CodeOK            int32 = 200
 	CodeBadRequest    int32 = 400
+	CodeUnauthorized  int32 = 401
 	CodeBusy          int32 = 429
 	CodeInternalError int32 = 500
 

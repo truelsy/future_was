@@ -17,6 +17,7 @@ type ActionHandler func(c echo.Context, body []byte) (proto.Message, error)
 type actionDef struct {
 	handler ActionHandler
 	newReq  func() proto.Message // 요청 proto 메시지 팩토리 (로깅용)
+	noAuth  bool                 // true면 디스패처의 세션 검증을 스킵한다 (예: Login).
 }
 
 // 액션 ID 상수 — 도메인별 그룹핑.
@@ -36,4 +37,13 @@ func RegisterAction(id uint32, fn ActionHandler, newReq func() proto.Message) {
 		panic("duplicate action id registration")
 	}
 	actionRegistry[id] = actionDef{handler: fn, newReq: newReq}
+}
+
+// RegisterNoAuthAction 세션 검증을 면제할 액션을 등록한다.
+// 로그인처럼 토큰 발급 전에 호출되어야 하는 액션에만 사용한다.
+func RegisterNoAuthAction(id uint32, fn ActionHandler, newReq func() proto.Message) {
+	if _, exists := actionRegistry[id]; exists {
+		panic("duplicate action id registration")
+	}
+	actionRegistry[id] = actionDef{handler: fn, newReq: newReq, noAuth: true}
 }

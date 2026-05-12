@@ -21,7 +21,8 @@ message GameRequest {
   uint64 user_id = 2;
   int64 timestamp = 3;
   string client_version = 4;
-  bytes body = 5;
+  string session_token = 5;
+  bytes body = 6;
 }
 
 message GameResponse {

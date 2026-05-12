@@ -39,9 +39,15 @@ func (h *accountHandler) Login(c echo.Context, body []byte) (proto.Message, erro
 	batter := u.Catalog().BatData().Get(100739)
 	log.Info().Interface("batter", batter).Msg("batter")
 
+	token, err := h.c.UserSession.Set(account.UserID)
+	if err != nil {
+		return nil, errcode.Newf(errcode.CodeInternalError, "session set: %v", err)
+	}
+
 	return &pb.LoginResponse{
-		UserId:     account.UserID,
-		ChannelUid: account.ChannelUID,
-		IsNew:      isNew,
+		UserId:       account.UserID,
+		ChannelUid:   account.ChannelUID,
+		IsNew:        isNew,
+		SessionToken: token,
 	}, nil
 }

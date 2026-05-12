@@ -22,7 +22,7 @@ func setupAccountHandler(c *container.Container) {
 		c:        c,
 	}
 
-	handler.RegisterAction(handler.ActionLogin, h.Login, func() proto.Message { return &pb.LoginRequest{} })
+	handler.RegisterNoAuthAction(handler.ActionLogin, h.Login, func() proto.Message { return &pb.LoginRequest{} })
 }
 
 type accountHandler struct {

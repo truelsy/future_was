@@ -81,6 +81,9 @@ func main() {
 	scanner := bufio.NewScanner(os.Stdin)
 	jsonOpts := protojson.MarshalOptions{Multiline: true, Indent: "  "}
 
+	// Login 응답으로 받은 세션 토큰. 이후 모든 요청 envelope에 자동 첨부된다.
+	var sessionToken string
+
 	fmt.Println("=== Future Next Baseball Client ===")
 	fmt.Printf("Server        : %s\n", *addr)
 	fmt.Printf("client_version: %s (change with [v])\n", *clientVersion)
@@ -91,6 +94,7 @@ func main() {
 			fmt.Printf("  [%d] %s\n", a.id, a.name)
 		}
 		fmt.Printf("  [v] change client_version (current: %s)\n", *clientVersion)
+		fmt.Printf("  session_token : %s\n", shortToken(sessionToken))
 		fmt.Println("  [0] Exit")
 		fmt.Println()
 
@@ -136,6 +140,7 @@ func main() {
 			UserId:        act.userID,
 			Timestamp:     time.Now().Unix(),
 			ClientVersion: *clientVersion,
+			SessionToken:  sessionToken,
 			Body:          innerBytes,
 		}
 		envBytes, err := proto.Marshal(envelope)
@@ -183,9 +188,26 @@ func main() {
 			fmt.Printf("body unmarshal error: %v\n", err)
 			continue
 		}
+
+		// Login 성공 시 세션 토큰을 보관하여 이후 요청 envelope에 자동 첨부한다.
+		if lr, ok := respMsg.(*pb.LoginResponse); ok {
+			sessionToken = lr.SessionToken
+		}
+
 		out, _ := jsonOpts.Marshal(respMsg)
 		fmt.Println(string(out))
 	}
+}
+
+// shortToken 토큰을 짧게 표시한다 (디버깅용).
+func shortToken(t string) string {
+	if t == "" {
+		return "(none)"
+	}
+	if len(t) <= 12 {
+		return t
+	}
+	return t[:8] + "..."
 }
 
 func findAction(id uint32) *action {

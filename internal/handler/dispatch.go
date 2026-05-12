@@ -66,6 +66,21 @@ func dispatch(c echo.Context) error {
 		return SendGameError(c, req.Action, errcode.CodeUnsupportedVersion, "unsupported client_version")
 	}
 
+	// 세션 검증 (인증 면제 액션 제외). 토큰 일치 시 TTL을 sliding 갱신한다.
+	if !def.noAuth {
+		if req.UserId == 0 || req.SessionToken == "" {
+			return SendGameError(c, req.Action, errcode.CodeUnauthorized, "missing session")
+		}
+		ok, err := ctn.UserSession.VerifyAndRefresh(c.Request().Context(), req.UserId, req.SessionToken)
+		if err != nil {
+			log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("session verify error: %v", err)
+			return SendGameError(c, req.Action, errcode.CodeInternalError, "session check failed")
+		}
+		if !ok {
+			return SendGameError(c, req.Action, errcode.CodeUnauthorized, "invalid or expired session")
+		}
+	}
+
 	// 유저별 분산락 획득 (멀티 서버 동시 요청 직렬화).
 	// userID가 0이면 (예: Login) 락 스킵.
 	if req.UserId != 0 {
@@ -100,18 +115,18 @@ func dispatch(c echo.Context) error {
 			log.Warn().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Int32("code", ae.Code).Msgf("action error: %s", ae.Message)
 			return SendGameError(c, req.Action, ae.Code, ae.Message)
 		}
-		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("internal error: %v", err)
-		return SendGameError(c, req.Action, errcode.CodeInternalError, "internal error")
-	}
-
-	// 핸들러 성공 후 UoW 커밋
-	if err := CommitOrRollback(u); err != nil {
-		return SendGameError(c, req.Action, errcode.CodeInternalError, "commit failed")
+		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("handler error: %v", err)
+		return SendGameError(c, req.Action, errcode.CodeInternalError, "handler error")
 	}
 
 	// 응답을 JSON으로 변환하여 context에 저장 (로깅용)
 	if resJSON, err := protojson.Marshal(result); err == nil {
 		SetResJSON(c, resJSON)
+	}
+
+	// 핸들러 성공 후 UoW 커밋
+	if err := CommitOrRollback(u); err != nil {
+		return SendGameError(c, req.Action, errcode.CodeInternalError, "commit failed")
 	}
 
 	body, err := proto.Marshal(result)

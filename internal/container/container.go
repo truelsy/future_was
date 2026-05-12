@@ -12,6 +12,7 @@ type Container struct {
 	GameDB         *database.Database
 	UserCache      *cache.UserCache
 	UserLock       *cache.UserLock
+	UserSession    *cache.UserSession
 	ClubCache      *cache.ClubCache
 	ClubLock       *cache.ClubLock
 	DesignStore    *design.Store
@@ -27,6 +28,7 @@ func New(designStore *design.Store, designSyncer *design.Syncer, resourceStore *
 		GameDB:         database.GetGameDB(),
 		UserCache:      cache.NewUserCache(),
 		UserLock:       cache.NewUserLock(),
+		UserSession:    cache.NewUserSession(),
 		ClubCache:      cache.NewClubCache(),
 		ClubLock:       cache.NewClubLock(),
 		DesignStore:    designStore,

@@ -12,4 +12,5 @@ message LoginResponse {
   uint64 user_id = 1;
   uint64 channel_uid = 2;
   bool is_new = 3;
+  string session_token = 4;
 }

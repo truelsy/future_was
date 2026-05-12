@@ -28,6 +28,11 @@ redis:
     port: "6379"
     password: "npb@future"
     db: 1
+  - name: "user_session"
+    host: "localhost"
+    port: "6379"
+    password: "npb@future"
+    db: 4
   - name: "club_cache"
     host: "localhost"
     port: "6379"

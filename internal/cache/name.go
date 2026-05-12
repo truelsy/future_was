@@ -4,6 +4,7 @@ package cache
 const (
 	NameLock         = "lock"
 	NameUserCache    = "user_cache"
+	NameUserSession  = "user_session"
 	NameClubCache    = "club_cache"
 	NameReloadPubSub = "reload_pubsub"
 )
