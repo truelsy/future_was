@@ -2,8 +2,6 @@ package account
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -12,11 +10,9 @@ import (
 	"future_was/internal/handler"
 	"future_was/internal/repository"
 	"future_was/internal/service"
-	"future_was/internal/testutil/integration"
-	"future_was/internal/uow"
+	"future_was/internal/testutil"
 	"future_was/pb"
 
-	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -25,9 +21,9 @@ import (
 var testHandler *accountHandler
 
 func TestMain(m *testing.M) {
-	cleanup := integration.Bootstrap()
+	cleanup := testutil.Bootstrap()
 
-	ctn := integration.Container()
+	ctn := testutil.Container()
 	repo := repository.NewAccountRepository(ctn.GameDB)
 	testHandler = &accountHandler{
 		svc:      service.NewAccountService(repo),
@@ -40,18 +36,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// newCtxWithUoW Login 호출에 필요한 echo.Context를 만들고 UoW를 주입한다.
-// 실제 dispatch가 하는 일을 흉내내되 catalog/Container는 integration 글로벌 사용.
-func newCtxWithUoW() echo.Context {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/api", nil)
-	c := e.NewContext(req, httptest.NewRecorder())
-	ctn := integration.Container()
-	u := uow.New(ctn, 0, ctn.DesignStore.GetByClientVersion(integration.DesignVersion()))
-	handler.SetUoW(c, u)
-	return c
-}
-
 func TestLogin_Success(t *testing.T) {
 	// 매 실행마다 새 channel_uid → 신규 계정 INSERT 경로.
 	ch := uint64(time.Now().UnixNano())
@@ -60,7 +44,7 @@ func TestLogin_Success(t *testing.T) {
 	body, err := proto.Marshal(&pb.LoginRequest{ChannelUid: ch, DeviceId: dev})
 	require.NoError(t, err)
 
-	c := newCtxWithUoW()
+	c := testutil.NewCtxWithUoW(0)
 	res, err := testHandler.Login(c, body)
 	require.NoError(t, err)
 
@@ -75,7 +59,7 @@ func TestLogin_Success(t *testing.T) {
 	assert.NotEmpty(t, lr.SessionToken)
 
 	// 발급된 토큰이 실제 Redis에 들어가 있는지 검증.
-	matched, err := integration.Container().UserSession.VerifyAndRefresh(context.Background(), lr.UserId, lr.SessionToken)
+	matched, err := testutil.Container().UserSession.VerifyAndRefresh(context.Background(), lr.UserId, lr.SessionToken)
 	require.NoError(t, err)
 	assert.True(t, matched)
 }
@@ -85,7 +69,7 @@ func TestLogin_InvalidInput(t *testing.T) {
 	body, err := proto.Marshal(&pb.LoginRequest{ChannelUid: 0, DeviceId: "dev"})
 	require.NoError(t, err)
 
-	c := newCtxWithUoW()
+	c := testutil.NewCtxWithUoW(0)
 	res, err := testHandler.Login(c, body)
 
 	require.Nil(t, res)

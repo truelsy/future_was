@@ -1,9 +1,9 @@
-// Package integration 핸들러 통합 테스트의 공용 셋업을 제공한다.
+// Package testutil 핸들러 통합 테스트의 공용 셋업/픽스처를 제공한다.
 //
 // 사용 예 (각 핸들러 패키지의 TestMain):
 //
 //	func TestMain(m *testing.M) {
-//	    cleanup := integration.Bootstrap()
+//	    cleanup := testutil.Bootstrap()
 //	    code := m.Run()
 //	    cleanup()
 //	    os.Exit(code)
@@ -11,7 +11,7 @@
 //
 // Bootstrap은 sync.Once로 보호되어 패키지 프로세스당 한 번만 실행된다.
 // (Go test는 패키지별 별도 바이너리이므로 패키지마다 새로 호출됨.)
-package integration
+package testutil
 
 import (
 	"context"
@@ -50,23 +50,23 @@ func initOnce() {
 	// 패키지 파일 위치 기준으로 repo root와 testdata 경로 해석.
 	_, thisFile, _, _ := runtime.Caller(0)
 	pkgDir := filepath.Dir(thisFile)
-	repoRoot := filepath.Join(pkgDir, "..", "..", "..")
+	repoRoot := filepath.Join(pkgDir, "..", "..")
 
 	cfg, err := config.Load(filepath.Join(repoRoot, "config.yaml"))
 	if err != nil {
-		panic(fmt.Errorf("integration: config load: %w", err))
+		panic(fmt.Errorf("testutil: config load: %w", err))
 	}
 
 	for _, db := range cfg.Databases {
 		d, err := database.Init(db.Name, db.DSN())
 		if err != nil {
-			panic(fmt.Errorf("integration: database init [%s]: %w", db.Name, err))
+			panic(fmt.Errorf("testutil: database init [%s]: %w", db.Name, err))
 		}
 		database.RegisterShard(db.ShardID, d)
 	}
 	for _, rc := range cfg.Redis {
 		if err := cache.Init(rc.Name, rc.Host, rc.Port, rc.Password, rc.DB); err != nil {
-			panic(fmt.Errorf("integration: redis init [%s]: %w", rc.Name, err))
+			panic(fmt.Errorf("testutil: redis init [%s]: %w", rc.Name, err))
 		}
 	}
 
@@ -78,7 +78,7 @@ func initOnce() {
 	cat, err := loader.Load(context.Background(), designVersion)
 	if err != nil {
 		designSrv.Close()
-		panic(fmt.Errorf("integration: design load: %w", err))
+		panic(fmt.Errorf("testutil: design load: %w", err))
 	}
 	store := design.NewStore()
 	store.Replace(map[string]*design.Catalog{designVersion: cat})
