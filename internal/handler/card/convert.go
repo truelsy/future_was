@@ -3,8 +3,8 @@ package card
 import (
 	"encoding/json"
 
-	"future_next_baseball/internal/model"
-	"future_next_baseball/pb"
+	"future_was/internal/model"
+	"future_was/pb"
 )
 
 // toCardData model.Card를 pb.CardData로 변환한다.
@@ -25,7 +25,7 @@ func toCardData(card *model.Card) *pb.CardData {
 		ThemeId:                 uint32(card.ThemeID),
 		ExtraThemeId:            uint32(card.ExtraThemeID),
 		IsLock:                  uint32(card.IsLock),
-		Skill:                   card.Skill.Data,
+		Skill:                   toPbSkills(card.Skill.Data),
 		PotentialList:           jsonBytes(card.PotentialList),
 		PotentialExtraLevelList: jsonBytes(card.PotentialExtraLevelList),
 		SpecialTrainingList:     jsonBytes(card.SpecialTrainingList),
@@ -46,4 +46,25 @@ func toCardData(card *model.Card) *pb.CardData {
 func jsonBytes(f model.JSONField[any]) []byte {
 	b, _ := json.Marshal(f.Data)
 	return b
+}
+
+// toPbSkills model.SkillData 슬라이스를 pb.SkillData 슬라이스로 변환한다.
+// model이 protobuf에 의존하지 않도록 변환 책임을 handler 계층에 둔다.
+func toPbSkills(src []*model.SkillData) []*pb.SkillData {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]*pb.SkillData, 0, len(src))
+	for _, s := range src {
+		if s == nil {
+			continue
+		}
+		out = append(out, &pb.SkillData{
+			Exp:     s.Exp,
+			Slot:    s.Slot,
+			Level:   s.Level,
+			SkillId: s.SkillID,
+		})
+	}
+	return out
 }

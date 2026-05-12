@@ -1,8 +1,8 @@
 package card
 
 import (
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/pb"
+	"future_was/internal/handler"
+	"future_was/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"

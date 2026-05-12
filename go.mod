@@ -1,4 +1,4 @@
-module future_next_baseball
+module future_was
 
 go 1.25.4
 

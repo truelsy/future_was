@@ -1,8 +1,10 @@
 package repository
 
 import (
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/model"
+	"errors"
+
+	"future_was/internal/database"
+	"future_was/internal/model"
 )
 
 type AccountRepository struct {
@@ -22,10 +24,18 @@ func (r *AccountRepository) FindByChannelUID(channelUID uint64) (*model.Account,
 	return &account, nil
 }
 
-func (r *AccountRepository) FindUserIdByChannelUID(channelUID uint64) (uint64, error) {
+// FindUserIdByChannelUID channel_uid로 user_id를 조회한다.
+// 미존재 시 (0, false, nil)을 반환하여 호출자가 SQL 에러 sentinel에 의존하지 않도록 한다.
+func (r *AccountRepository) FindUserIdByChannelUID(channelUID uint64) (uint64, bool, error) {
 	var userID uint64
 	err := r.db.RawGet(&userID, "SELECT user_id FROM TB_ACCOUNT WHERE channel_uid = ? AND is_active > 0", channelUID)
-	return userID, err
+	if errors.Is(err, database.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return userID, true, nil
 }
 
 func (r *AccountRepository) FindByUserID(userID uint64) (*model.Account, error) {

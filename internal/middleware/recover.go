@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"future_next_baseball/internal/log"
+	"future_was/internal/log"
 	"net/http/httputil"
 	"runtime/debug"
 	"strings"

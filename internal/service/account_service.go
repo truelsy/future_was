@@ -1,13 +1,11 @@
 package service
 
 import (
-	"errors"
 	"time"
 
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/model"
-	"future_next_baseball/internal/repository"
-	"future_next_baseball/internal/uow"
+	"future_was/internal/model"
+	"future_was/internal/repository"
+	"future_was/internal/uow"
 )
 
 type AccountService struct {
@@ -21,15 +19,14 @@ func NewAccountService(repo *repository.AccountRepository) *AccountService {
 // Login channel_uid로 계정을 조회한다. 없으면 즉시 INSERT하여 user_id를 할당한다.
 // 기존 계정이면 device_id/update_time 갱신을 UoW에 큐잉한다.
 func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID string) (*model.Account, bool, error) {
-	userID, err := s.repo.FindUserIdByChannelUID(channelUID)
-	u.SetUserID(userID)
+	userID, found, err := s.repo.FindUserIdByChannelUID(channelUID)
+	if err != nil {
+		return nil, false, err
+	}
 
 	now := uint32(time.Now().Unix())
 
-	if err != nil {
-		if !errors.Is(err, database.ErrNoRows) {
-			return nil, false, err
-		}
+	if !found {
 		// 신규 계정: 즉시 INSERT하여 user_id를 할당한다.
 		account := &model.Account{
 			ChannelUID: channelUID,
@@ -45,6 +42,8 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 		}
 		return account, true, nil
 	}
+
+	u.SetUserID(userID)
 
 	account, err := u.Account()
 	if err != nil {

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"future_next_baseball/internal/log"
-	"future_next_baseball/internal/repository"
+	"future_was/internal/log"
+	"future_was/internal/repository"
 
 	"github.com/redis/go-redis/v9"
 )

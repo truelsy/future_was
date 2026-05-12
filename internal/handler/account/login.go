@@ -1,9 +1,10 @@
 package account
 
 import (
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/log"
-	"future_next_baseball/pb"
+	"future_was/internal/errcode"
+	"future_was/internal/handler"
+	"future_was/internal/log"
+	"future_was/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"
@@ -12,11 +13,11 @@ import (
 func (h *accountHandler) Login(c echo.Context, body []byte) (proto.Message, error) {
 	var req pb.LoginRequest
 	if err := proto.Unmarshal(body, &req); err != nil {
-		return nil, handler.BadRequest("invalid request")
+		return nil, errcode.BadRequest("invalid request")
 	}
 
 	if req.ChannelUid == 0 || req.DeviceId == "" {
-		return nil, handler.BadRequest("channel_uid and device_id are required")
+		return nil, errcode.BadRequest("channel_uid and device_id are required")
 	}
 
 	u := handler.UoW(c)

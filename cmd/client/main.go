@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"future_next_baseball/pb"
+	"future_was/pb"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"

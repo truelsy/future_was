@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"future_next_baseball/internal/model"
+	"future_was/internal/model"
 )
 
 type Snapshot struct {

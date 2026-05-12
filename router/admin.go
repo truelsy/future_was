@@ -3,7 +3,7 @@ package router
 import (
 	"net/http"
 
-	"future_next_baseball/internal/container"
+	"future_was/internal/container"
 
 	"github.com/labstack/echo/v4"
 )

@@ -1,10 +1,10 @@
 package card
 
 import (
-	"future_next_baseball/internal/container"
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/service"
-	"future_next_baseball/pb"
+	"future_was/internal/container"
+	"future_was/internal/handler"
+	"future_was/internal/service"
+	"future_was/pb"
 
 	"google.golang.org/protobuf/proto"
 )

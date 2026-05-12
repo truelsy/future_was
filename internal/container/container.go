@@ -1,10 +1,10 @@
 package container
 
 import (
-	"future_next_baseball/internal/cache"
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/design"
-	"future_next_baseball/internal/resource"
+	"future_was/internal/cache"
+	"future_was/internal/database"
+	"future_was/internal/design"
+	"future_was/internal/resource"
 )
 
 // Container 핸들러 전체에서 공유되는 의존성을 보관한다.

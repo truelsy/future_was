@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"future_next_baseball/internal/container"
-	"future_next_baseball/internal/log"
-	"future_next_baseball/internal/uow"
-	"future_next_baseball/pb"
+	"future_was/internal/container"
+	"future_was/internal/errcode"
+	"future_was/internal/log"
+	"future_was/internal/uow"
+	"future_was/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -40,12 +41,12 @@ func SetupAll(e *echo.Echo, c *container.Container) {
 func dispatch(c echo.Context) error {
 	raw, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return SendGameError(c, 0, CodeBadRequest, "failed to read body")
+		return SendGameError(c, 0, errcode.CodeBadRequest, "failed to read body")
 	}
 
 	var req pb.GameRequest
 	if err := proto.Unmarshal(raw, &req); err != nil {
-		return SendGameError(c, 0, CodeBadRequest, "invalid envelope")
+		return SendGameError(c, 0, errcode.CodeBadRequest, "invalid envelope")
 	}
 
 	// 미들웨어(logger 등)에서 참조할 수 있도록 context에 저장한다.
@@ -55,14 +56,14 @@ func dispatch(c echo.Context) error {
 
 	def, ok := actionRegistry[req.Action]
 	if !ok {
-		return SendGameError(c, req.Action, CodeBadRequest, "unknown action")
+		return SendGameError(c, req.Action, errcode.CodeBadRequest, "unknown action")
 	}
 
 	// client_version → design Catalog 라우팅. 모든 액션이 디자인 카탈로그에 접근하므로
 	// 디스패처에서 1회 결정 후 UoW에 주입한다.
 	catalog := ctn.DesignStore.GetByClientVersion(req.ClientVersion)
 	if catalog == nil {
-		return SendGameError(c, req.Action, CodeUnsupportedVersion, "unsupported client_version")
+		return SendGameError(c, req.Action, errcode.CodeUnsupportedVersion, "unsupported client_version")
 	}
 
 	// 유저별 분산락 획득 (멀티 서버 동시 요청 직렬화).
@@ -71,7 +72,7 @@ func dispatch(c echo.Context) error {
 		token, err := ctn.UserLock.Acquire(c.Request().Context(), req.UserId)
 		if err != nil {
 			log.Warn().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("lock acquire failed: %v", err)
-			return SendGameError(c, req.Action, CodeBusy, "busy, retry later")
+			return SendGameError(c, req.Action, errcode.CodeBusy, "busy, retry later")
 		}
 		defer func() {
 			_ = ctn.UserLock.Release(c.Request().Context(), req.UserId, token)
@@ -94,18 +95,18 @@ func dispatch(c echo.Context) error {
 
 	result, err := def.handler(c, req.Body)
 	if err != nil {
-		var ae *ActionError
+		var ae *errcode.Error
 		if errors.As(err, &ae) {
 			log.Warn().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Int32("code", ae.Code).Msgf("action error: %s", ae.Message)
 			return SendGameError(c, req.Action, ae.Code, ae.Message)
 		}
 		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("internal error: %v", err)
-		return SendGameError(c, req.Action, CodeInternalError, "internal error")
+		return SendGameError(c, req.Action, errcode.CodeInternalError, "internal error")
 	}
 
 	// 핸들러 성공 후 UoW 커밋
 	if err := CommitOrRollback(u); err != nil {
-		return SendGameError(c, req.Action, CodeInternalError, "commit failed")
+		return SendGameError(c, req.Action, errcode.CodeInternalError, "commit failed")
 	}
 
 	// 응답을 JSON으로 변환하여 context에 저장 (로깅용)
@@ -115,10 +116,10 @@ func dispatch(c echo.Context) error {
 
 	body, err := proto.Marshal(result)
 	if err != nil {
-		return SendGameError(c, req.Action, CodeInternalError, "marshal error")
+		return SendGameError(c, req.Action, errcode.CodeInternalError, "marshal error")
 	}
 
-	return sendGameResponse(c, req.Action, CodeOK, body)
+	return sendGameResponse(c, req.Action, errcode.CodeOK, body)
 }
 
 func sendGameResponse(c echo.Context, action uint32, code int32, body []byte) error {

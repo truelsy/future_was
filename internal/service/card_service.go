@@ -1,8 +1,8 @@
 package service
 
 import (
-	"future_next_baseball/internal/model"
-	"future_next_baseball/internal/uow"
+	"future_was/internal/model"
+	"future_was/internal/uow"
 )
 
 type CardService struct{}

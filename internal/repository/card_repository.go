@@ -1,8 +1,8 @@
 package repository
 
 import (
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/model"
+	"future_was/internal/database"
+	"future_was/internal/model"
 )
 
 type CardRepository struct {

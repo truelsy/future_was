@@ -3,8 +3,8 @@ package resource
 import (
 	"context"
 	"fmt"
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/repository"
+	"future_was/internal/database"
+	"future_was/internal/repository"
 )
 
 type Loader struct {

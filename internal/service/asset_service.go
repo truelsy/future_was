@@ -3,9 +3,9 @@ package service
 import (
 	"time"
 
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/model"
-	"future_next_baseball/internal/uow"
+	"future_was/internal/errcode"
+	"future_was/internal/model"
+	"future_was/internal/uow"
 )
 
 type AssetService struct{}
@@ -65,10 +65,10 @@ func (s *AssetService) ConsumeAsset(u *uow.UnitOfWork, assetID uint32, quantity 
 		return err
 	}
 	if asset == nil {
-		return handler.Errorf(handler.CodeAssetNotFound, "asset not found: asset_id=%d", assetID)
+		return errcode.Newf(errcode.CodeAssetNotFound, "asset not found: asset_id=%d", assetID)
 	}
 	if asset.Quantity < quantity {
-		return handler.Errorf(handler.CodeAssetInsufficient, "insufficient asset: have %d, need %d", asset.Quantity, quantity)
+		return errcode.Newf(errcode.CodeAssetInsufficient, "insufficient asset: have %d, need %d", asset.Quantity, quantity)
 	}
 
 	now := uint32(time.Now().Unix())

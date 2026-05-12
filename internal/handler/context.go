@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"future_next_baseball/internal/uow"
+	"future_was/internal/uow"
 
 	"github.com/labstack/echo/v4"
 )

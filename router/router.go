@@ -1,12 +1,12 @@
 package router
 
 import (
-	"future_next_baseball/internal/container"
-	"future_next_baseball/internal/handler"
+	"future_was/internal/container"
+	"future_was/internal/handler"
 
 	// 서브패키지의 init() 함수를 실행하여 액션을 등록하기 위한 blank import.
-	_ "future_next_baseball/internal/handler/account"
-	_ "future_next_baseball/internal/handler/card"
+	_ "future_was/internal/handler/account"
+	_ "future_was/internal/handler/card"
 
 	"github.com/labstack/echo/v4"
 )

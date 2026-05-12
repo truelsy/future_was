@@ -1,7 +1,7 @@
 package log
 
 import (
-	"future_next_baseball/internal/app"
+	"future_was/internal/app"
 	"io"
 	"os"
 	"path/filepath"

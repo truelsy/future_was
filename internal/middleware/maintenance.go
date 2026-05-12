@@ -1,8 +1,9 @@
 package middleware
 
 import (
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/resource"
+	"future_was/internal/errcode"
+	"future_was/internal/handler"
+	"future_was/internal/resource"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ func MaintenanceMiddleware(store *resource.Store) echo.MiddlewareFunc {
 			now := uint32(time.Now().Unix())
 			if m := store.Get().ActiveMaintenance(now); m != nil {
 				// 점검중
-				return handler.SendGameError(c, 0, handler.CodeMaintenance, m.Msg)
+				return handler.SendGameError(c, 0, errcode.CodeMaintenance, m.Msg)
 			}
 
 			return next(c)

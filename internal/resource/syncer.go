@@ -2,7 +2,7 @@ package resource
 
 import (
 	"context"
-	"future_next_baseball/internal/log"
+	"future_was/internal/log"
 	"sync"
 
 	"github.com/redis/go-redis/v9"

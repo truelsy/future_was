@@ -1,9 +1,10 @@
 package card
 
 import (
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/uow"
-	"future_next_baseball/pb"
+	"future_was/internal/errcode"
+	"future_was/internal/handler"
+	"future_was/internal/uow"
+	"future_was/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"
@@ -12,7 +13,7 @@ import (
 func (h *cardHandler) UpgradeCardLevel(c echo.Context, body []byte) (proto.Message, error) {
 	var req pb.UpgradeCardLevelRequest
 	if err := proto.Unmarshal(body, &req); err != nil {
-		return nil, handler.BadRequest("invalid request")
+		return nil, errcode.BadRequest("invalid request")
 	}
 
 	u := handler.UoW(c)
@@ -21,7 +22,7 @@ func (h *cardHandler) UpgradeCardLevel(c echo.Context, body []byte) (proto.Messa
 		return nil, err
 	}
 	if card == nil {
-		return nil, handler.Errorf(handler.CodeCardNotFound, "not found card. idx(%v)", req.CardIdx)
+		return nil, errcode.Newf(errcode.CodeCardNotFound, "not found card. idx(%v)", req.CardIdx)
 	}
 
 	// 카드 레벨업 (임시 코드)

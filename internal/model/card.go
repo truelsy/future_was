@@ -1,9 +1,5 @@
 package model
 
-import (
-	"future_next_baseball/pb"
-)
-
 type Card struct {
 	Idx                     uint64                     `db:"idx" json:"idx"`
 	UserID                  uint64                     `db:"user_id" json:"user_id"`
@@ -20,7 +16,7 @@ type Card struct {
 	ThemeID                 uint16                     `db:"theme_id" json:"theme_id"`
 	ExtraThemeID            uint16                     `db:"extra_theme_id" json:"extra_theme_id"`
 	IsLock                  uint8                      `db:"is_lock" json:"is_lock"`
-	Skill                   JSONField[[]*pb.SkillData] `db:"skill" json:"skill"`
+	Skill                   JSONField[[]*SkillData]    `db:"skill" json:"skill"`
 	PotentialList           JSONField[any]             `db:"potential_list" json:"potential_list"`
 	PotentialExtraLevelList JSONField[any]             `db:"potential_extra_level_list" json:"potential_extra_level_list"`
 	SpecialTrainingList     JSONField[any]             `db:"special_training_list" json:"special_training_list"`

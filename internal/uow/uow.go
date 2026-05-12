@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"reflect"
 
-	"future_next_baseball/internal/container"
-	"future_next_baseball/internal/database"
-	"future_next_baseball/internal/design"
-	"future_next_baseball/internal/model"
+	"future_was/internal/container"
+	"future_was/internal/database"
+	"future_was/internal/design"
+	"future_was/internal/model"
 
 	"github.com/jmoiron/sqlx"
 )

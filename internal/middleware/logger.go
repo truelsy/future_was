@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"bytes"
-	"future_next_baseball/internal/handler"
-	"future_next_baseball/internal/log"
+	"future_was/internal/handler"
+	"future_was/internal/log"
 	"io"
 	"time"
 
