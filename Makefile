@@ -1,4 +1,4 @@
-.PHONY: build run proto clean vet client design design-struct
+.PHONY: build run proto clean vet test client design design-struct
 
 # 서버 빌드
 build:
@@ -15,6 +15,13 @@ proto:
 # 정적 분석
 vet:
 	go vet ./...
+
+# 테스트 실행 (캐시 무시). MySQL/Redis가 로컬에 떠 있어야 한다.
+# 사용 예: make test
+#         make test PKG=./internal/handler/account/...
+#         make test RUN=TestLogin_Success
+test:
+	go test $(or $(PKG),./...) -count=1 $(if $(RUN),-run $(RUN),) $(if $(V),-v,)
 
 # 테스트 클라이언트 실행
 client:

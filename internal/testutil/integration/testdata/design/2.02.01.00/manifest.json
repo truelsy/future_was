@@ -1,0 +1,16 @@
+{
+  "version": "2.02.01.00",
+  "target": "server",
+  "files": [
+    {
+      "name": "BAT_DATA.json",
+      "checksum": "",
+      "pk": "NID"
+    },
+    {
+      "name": "CURRENCY_LIST.json",
+      "checksum": "",
+      "pk": "IDX"
+    }
+  ]
+}
