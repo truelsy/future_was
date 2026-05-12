@@ -76,6 +76,7 @@ func main() {
 		}
 	}
 
+	// 리소스 데이터 로드 + Pub/Sub 동기화
 	resourceLoader := resource.NewLoader(gameDB)
 	resourceStore := resource.NewStore()
 	resourceSyncer := resource.NewSyncer(resourceStore, resourceLoader, cache.Get(cache.NameReloadPubSub))
