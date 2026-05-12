@@ -13,6 +13,7 @@ type JSONField[T any] struct {
 	Data T
 }
 
+// Scan implements the sql.Scanner interface.
 func (j *JSONField[T]) Scan(src any) error {
 	var data []byte
 	switch v := src.(type) {
@@ -26,14 +27,17 @@ func (j *JSONField[T]) Scan(src any) error {
 	return json.Unmarshal(data, &j.Data)
 }
 
+// Value implements the driver.Valuer interface.
 func (j JSONField[T]) Value() (driver.Value, error) {
 	return json.Marshal(j.Data)
 }
 
+// MarshalJSON implements json.Marshaler.
 func (j JSONField[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(j.Data)
 }
 
+// UnmarshalJSON implements json.Unmarshaler.
 func (j *JSONField[T]) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &j.Data)
 }

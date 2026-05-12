@@ -20,7 +20,7 @@ message CardData {
   uint32 extra_theme_id = 14;
   uint32 is_lock = 15;
   repeated SkillData skill = 16;
-  bytes potential_list = 17;
+  map<uint32, uint32> potential_list = 17;
   bytes potential_extra_level_list = 18;
   bytes special_training_list = 19;
   bytes edition_training = 20;

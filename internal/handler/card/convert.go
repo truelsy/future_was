@@ -26,7 +26,7 @@ func toCardData(card *model.Card) *pb.CardData {
 		ExtraThemeId:            uint32(card.ExtraThemeID),
 		IsLock:                  uint32(card.IsLock),
 		Skill:                   toPbSkills(card.Skill.Data),
-		PotentialList:           jsonBytes(card.PotentialList),
+		PotentialList:           card.PotentialList.Data,
 		PotentialExtraLevelList: jsonBytes(card.PotentialExtraLevelList),
 		SpecialTrainingList:     jsonBytes(card.SpecialTrainingList),
 		EditionTraining:         jsonBytes(card.EditionTraining),
