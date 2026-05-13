@@ -20,8 +20,8 @@ type Card struct {
 	Skill                 JSONField[[]*SkillData] `db:"skill" json:"skill"`
 	PotentialList         JSONField[PotentialMap] `db:"potential_list" json:"potential_list"`
 	EnhanceCardIdx        uint64                  `db:"enhance_card_idx" json:"enhance_card_idx"`
-	InsertTime            time.Time               `db:"insert_time,auto" json:"insert_time"`
-	UpdateTime            time.Time               `db:"update_time,auto" json:"update_time"`
+	InsertTime            time.Time               `db:"insert_time" json:"insert_time"`
+	UpdateTime            time.Time               `db:"update_time" json:"update_time"`
 }
 
 func (*Card) TableName() string        { return "TB_CARD" }

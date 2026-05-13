@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"future_was/internal/errcode"
 	"future_was/internal/model"
 	"future_was/internal/uow"
@@ -39,8 +41,11 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 		return err
 	}
 
+	now := time.Now()
+
 	if item != nil {
 		item.Amount += amount
+		item.UpdateTime = now
 		uow.Update(u, item, u.ShardDB())
 		return nil
 	}
@@ -53,10 +58,12 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 
 	// 없으면 생성
 	item = &model.Item{
-		UserID:   u.UserID(),
-		ItemType: uint16(designItem.ItemType),
-		ItemID:   itemID,
-		Amount:   amount,
+		UserID:     u.UserID(),
+		ItemType:   uint16(designItem.ItemType),
+		ItemID:     itemID,
+		Amount:     amount,
+		InsertTime: now,
+		UpdateTime: now,
 	}
 	uow.Create(u, uow.FieldItems, item, u.ShardDB())
 

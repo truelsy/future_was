@@ -7,8 +7,8 @@ type Asset struct {
 	UserID     uint64    `db:"user_id" json:"user_id"`
 	AssetID    uint32    `db:"asset_id" json:"asset_id"`
 	Quantity   int64     `db:"quantity" json:"quantity"`
-	InsertTime time.Time `db:"insert_time,auto" json:"insert_time"`
-	UpdateTime time.Time `db:"update_time,auto" json:"update_time"`
+	InsertTime time.Time `db:"insert_time" json:"insert_time"`
+	UpdateTime time.Time `db:"update_time" json:"update_time"`
 }
 
 func (*Asset) TableName() string        { return "TB_ASSET" }

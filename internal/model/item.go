@@ -8,8 +8,8 @@ type Item struct {
 	ItemType   uint16    `db:"item_type" json:"item_type"`
 	ItemID     uint32    `db:"item_id" json:"item_id"`
 	Amount     uint64    `db:"amount" json:"amount"`
-	InsertTime time.Time `db:"insert_time,auto" json:"insert_time"`
-	UpdateTime time.Time `db:"update_time,auto" json:"update_time"`
+	InsertTime time.Time `db:"insert_time" json:"insert_time"`
+	UpdateTime time.Time `db:"update_time" json:"update_time"`
 }
 
 func (*Item) TableName() string        { return "TB_ITEM" }

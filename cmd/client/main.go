@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"future_was/internal/handler"
 	"io"
 	"net/http"
 	"os"
@@ -22,14 +23,14 @@ import (
 type action struct {
 	id       uint32
 	name     string
-	userID   uint64                                         // envelope에 포함할 user_id (buildReq에서 설정)
+	userID   uint64 // envelope에 포함할 user_id (buildReq에서 설정)
 	buildReq func(a *action, s *bufio.Scanner) (proto.Message, error)
 	newResp  func() proto.Message
 }
 
 var actions = []action{
 	{
-		id:   1001,
+		id:   handler.ActionLogin,
 		name: "Login",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
 			uid, err := promptUint64(s, "channel_uid")
@@ -42,7 +43,7 @@ var actions = []action{
 		newResp: func() proto.Message { return &pb.LoginResponse{} },
 	},
 	{
-		id:   2001,
+		id:   handler.ActionGetCards,
 		name: "GetCards",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
 			uid, err := promptUint64(s, "user_id")
@@ -55,7 +56,7 @@ var actions = []action{
 		newResp: func() proto.Message { return &pb.GetCardsResponse{} },
 	},
 	{
-		id:   2002,
+		id:   handler.ActionUpgradeCardLevel,
 		name: "UpgradeCardLevel",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
 			uid, err := promptUint64(s, "user_id")
@@ -70,6 +71,19 @@ var actions = []action{
 			return &pb.UpgradeCardLevelRequest{CardIdx: cardIdx}, nil
 		},
 		newResp: func() proto.Message { return &pb.UpgradeCardLevelResponse{} },
+	},
+	{
+		id:   handler.ActionGetItems,
+		name: "GetItems",
+		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
+			uid, err := promptUint64(s, "user_id")
+			if err != nil {
+				return nil, err
+			}
+			a.userID = uid
+			return &pb.GetItemsRequest{}, nil
+		},
+		newResp: func() proto.Message { return &pb.GetItemsResponse{} },
 	},
 }
 

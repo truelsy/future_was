@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"future_was/internal/errcode"
 	"future_was/internal/model"
 	"future_was/internal/uow"
@@ -35,17 +37,22 @@ func (s *AssetService) AddAsset(u *uow.UnitOfWork, assetID uint32, quantity int6
 		return err
 	}
 
+	now := time.Now()
+
 	if asset == nil {
 		newAsset := &model.Asset{
-			UserID:   u.UserID(),
-			AssetID:  assetID,
-			Quantity: quantity,
+			UserID:     u.UserID(),
+			AssetID:    assetID,
+			Quantity:   quantity,
+			InsertTime: now,
+			UpdateTime: now,
 		}
 		uow.Create(u, uow.FieldAssets, newAsset, u.ShardDB())
 		return nil
 	}
 
 	asset.Quantity += quantity
+	asset.UpdateTime = now
 	uow.Update(u, asset, u.ShardDB())
 	return nil
 }
@@ -65,6 +72,7 @@ func (s *AssetService) ConsumeAsset(u *uow.UnitOfWork, assetID uint32, quantity 
 	}
 
 	asset.Quantity -= quantity
+	asset.UpdateTime = time.Now()
 	uow.Update(u, asset, u.ShardDB())
 	return nil
 }
