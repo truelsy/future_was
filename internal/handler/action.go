@@ -25,6 +25,8 @@ const (
 	ActionLogin            uint32 = 1001
 	ActionGetCards         uint32 = 2001
 	ActionUpgradeCardLevel uint32 = 2002
+
+	ActionGetItems uint32 = 3001
 )
 
 // actionRegistry는 action_id → actionDef 매핑이다.

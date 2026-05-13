@@ -47,7 +47,8 @@ const (
 	CodeAssetInsufficient int32 = 3002
 
 	// 디자인/버전 (4xxx)
-	CodeUnsupportedVersion int32 = 4001
+	CodeUnsupportedDesignVersion int32 = 4001
+	CodeNotFoundDesign           int32 = 4002
 
 	// 운영 상태 (5xxx)
 	CodeMaintenance int32 = 5001

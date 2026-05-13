@@ -1,5 +1,5 @@
 {
-  "version": "2.02.01.00",
+  "version": "1.00.00.00",
   "target": "server",
   "files": [
     {
@@ -11,6 +11,11 @@
       "name": "CURRENCY_LIST.json",
       "checksum": "",
       "pk": "IDX"
+    },
+    {
+      "name": "ITEM_LIST.json",
+      "checksum": "",
+      "pk": "ITEM_ID"
     }
   ]
 }

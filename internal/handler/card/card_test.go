@@ -19,7 +19,6 @@ const testCardID = 100739 // testdata BAT_DATA.json에 포함된 NID
 
 var (
 	testHandler *cardHandler
-	testAccount *model.Account
 	testCard    *model.Card
 )
 
@@ -32,10 +31,9 @@ func TestMain(m *testing.M) {
 		c:   ctn,
 	}
 
-	// 패키지 단위 공유 fixture — 카드 1장이 달린 계정.
-	// 격리가 필요한 테스트는 자체적으로 testutil.CreateTestAccountWithCard 를 호출하면 된다.
-	testAccount = testutil.CreateTestAccount()
-	testCard = testutil.CreateTestCard(testAccount, testCardID)
+	// 공용 계정은 testutil.SharedAccount() 가 제공한다.
+	// card 도메인 한정 fixture(testCard) 만 여기서 만든다.
+	testCard = testutil.CreateTestCard(testutil.TestAccount(), testHandler.svc, testCardID)
 
 	code := m.Run()
 	cleanup()
@@ -46,7 +44,7 @@ func TestGetCardList_Success(t *testing.T) {
 	body, err := proto.Marshal(&pb.GetCardsRequest{})
 	require.NoError(t, err)
 
-	c := testutil.NewCtxWithUoW(testAccount.UserID)
+	c := testutil.NewCtxWithUoW(testutil.TestAccount().UserID)
 	res, err := testHandler.GetCards(c, body)
 	require.NoError(t, err)
 	require.NoError(t, handler.UoW(c).Commit())
@@ -62,7 +60,7 @@ func TestUpgradeCardLevel_Success(t *testing.T) {
 	body, err := proto.Marshal(&pb.UpgradeCardLevelRequest{CardIdx: testCard.Idx})
 	require.NoError(t, err)
 
-	c := testutil.NewCtxWithUoW(testAccount.UserID)
+	c := testutil.NewCtxWithUoW(testutil.TestAccount().UserID)
 	beforeLevel := testCard.Level
 
 	res, err := testHandler.UpgradeCardLevel(c, body)

@@ -3,19 +3,21 @@ server:
 
 databases:
   - name: "game"
-    shard_id: 0
+    shard_id: 1
     host: "localhost"
     port: "3306"
     user: "root"
     password: "npb@future"
-    dbname: "FUTURE_NPB_GAME"
+    dbname: "N_GAME"
+    weight: 0  # 시스템 DB. 신규 유저 자동 할당 풀에서 제외.
   - name: "shard_1"
     shard_id: 10
     host: "localhost"
     port: "3306"
     user: "root"
     password: "npb@future"
-    dbname: "FNPB_GAME_S0"
+    dbname: "N_SHARD_10"
+    weight: 100  # 가중치만큼 신규 유저 할당 비율 결정. 새 shard 추가 시 이 값을 조정.
 
 redis:
   - name: "lock"
@@ -23,26 +25,26 @@ redis:
     port: "6379"
     password: "npb@future"
     db: 0
-  - name: "user_cache"
-    host: "localhost"
-    port: "6379"
-    password: "npb@future"
-    db: 1
   - name: "user_session"
     host: "localhost"
     port: "6379"
     password: "npb@future"
-    db: 4
-  - name: "club_cache"
+    db: 1
+  - name: "user_cache"
     host: "localhost"
     port: "6379"
     password: "npb@future"
     db: 2
-  - name: "reload_pubsub"
+  - name: "club_cache"
     host: "localhost"
     port: "6379"
     password: "npb@future"
     db: 3
+  - name: "reload_pubsub"
+    host: "localhost"
+    port: "6379"
+    password: "npb@future"
+    db: 15
 
 cdn:
   design_base_url: "https://futurenpb-dev-server-01.qpyou.cn:8001/test/design"

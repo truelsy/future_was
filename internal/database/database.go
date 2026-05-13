@@ -1,7 +1,9 @@
 package database
 
 import (
+	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -13,10 +15,21 @@ type Database struct {
 	db *sqlx.DB
 }
 
+// weightedShard PickShard 의 누적 가중치 항목.
+type weightedShard struct {
+	id        int8
+	cumWeight int // shardPool 내 직전 항목까지의 누적 + 자신의 weight
+}
+
 var (
-	shardMap = make(map[int8]*Database)
-	mu       sync.RWMutex
+	shardMap    = make(map[int8]*Database)
+	shardPool   []weightedShard // weight > 0 인 shard만, 등록 순서대로 누적 가중치 저장
+	totalWeight int
+	mu          sync.RWMutex
 )
+
+// ErrNoShardAvailable PickShard 호출 시 weight>0 인 shard가 없으면 반환된다.
+var ErrNoShardAvailable = errors.New("database: no shard available for user assignment")
 
 // Init 은 새 DB 연결을 생성하고 지정된 이름으로 등록한다.
 func Init(name, dsn string) (*Database, error) {
@@ -27,11 +40,38 @@ func Init(name, dsn string) (*Database, error) {
 	return &Database{db: db}, nil
 }
 
-// RegisterShard 는 shard ID를 Database 인스턴스에 매핑한다.
-func RegisterShard(shardID int8, db *Database) {
+// RegisterShard shard ID를 Database 인스턴스에 매핑한다.
+// weight > 0 이면 PickShard 가 사용하는 가중치 풀에도 포함된다.
+// weight == 0 은 시스템 DB 등 신규 유저 자동 할당 대상이 아닌 shard.
+func RegisterShard(shardID int8, db *Database, weight int) {
 	mu.Lock()
+	defer mu.Unlock()
+
 	shardMap[shardID] = db
-	mu.Unlock()
+	if weight > 0 {
+		totalWeight += weight
+		shardPool = append(shardPool, weightedShard{id: shardID, cumWeight: totalWeight})
+	}
+}
+
+// PickShard 등록된 weight 에 비례한 확률로 shard ID를 반환한다.
+// 신규 계정 생성 시 DBShardID 결정에 사용한다.
+// weight > 0 인 shard가 하나도 없으면 ErrNoShardAvailable.
+func PickShard() (int8, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if totalWeight == 0 {
+		return 0, ErrNoShardAvailable
+	}
+	r := rand.IntN(totalWeight)
+	for _, s := range shardPool {
+		if r < s.cumWeight {
+			return s.id, nil
+		}
+	}
+	// 누적 가중치가 정렬되어 있으므로 도달 불가. 방어적으로 마지막 항목 반환.
+	return shardPool[len(shardPool)-1].id, nil
 }
 
 // GetShard 지정된 shard ID에 해당하는 Database를 반환한다.
@@ -55,6 +95,8 @@ func CloseAll() {
 		_ = d.db.Close()
 		delete(shardMap, id)
 	}
+	shardPool = nil
+	totalWeight = 0
 }
 
 // SqlxDB 내부 *sqlx.DB 인스턴스를 반환한다.

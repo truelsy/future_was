@@ -28,6 +28,7 @@ func TestMain(m *testing.M) {
 	testHandler = &accountHandler{
 		svc:      service.NewAccountService(repo),
 		assetSvc: service.NewAssetService(),
+		itemSvc:  service.NewItemService(),
 		c:        ctn,
 	}
 

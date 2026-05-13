@@ -26,18 +26,22 @@ func (h *accountHandler) Login(c echo.Context, body []byte) (proto.Message, erro
 		return nil, err
 	}
 
-	// 재화 지급
+	// 초기 재화 지급
 	// todo: 임시코드
-	asset := u.Catalog().Currency().Get(10000)
-	if err := h.assetSvc.AddAsset(u, uint32(asset.ItemId), 100); err != nil {
-		return nil, err
-	}
-	_ = h.assetSvc.ConsumeAsset(u, uint32(asset.ItemId), 30)
+	if isNew {
+		if err := h.assetSvc.AddAsset(u, 10000, 100); err != nil {
+			return nil, err
+		}
 
-	// 카드 한장 조회
-	// todo: 임시 코드
-	batter := u.Catalog().BatData().Get(100739)
-	log.Info().Interface("batter", batter).Msg("batter")
+		// 초기 아이템 지급
+		if err := h.itemSvc.AddItem(u, 25000, 5); err != nil {
+			return nil, err
+		}
+
+		// 카드 한장 조회
+		batter := u.Catalog().BatData().Get(100739)
+		log.Info().Interface("batter", batter).Msg("batter")
+	}
 
 	token, err := h.c.UserSession.Set(account.UserID)
 	if err != nil {

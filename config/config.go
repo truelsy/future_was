@@ -26,6 +26,7 @@ type ServerConfig struct {
 type DBConfig struct {
 	Name     string `yaml:"name"`
 	ShardID  int8   `yaml:"shard_id"`
+	Weight   int    `yaml:"weight"` // 신규 유저 자동 할당 가중치. 0이면 자동 할당 풀에서 제외 (예: 시스템 DB).
 	Host     string `yaml:"host"`
 	Port     string `yaml:"port"`
 	User     string `yaml:"user"`

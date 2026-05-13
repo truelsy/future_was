@@ -1,8 +1,6 @@
 package service
 
 import (
-	"time"
-
 	"future_was/internal/errcode"
 	"future_was/internal/model"
 	"future_was/internal/uow"
@@ -32,8 +30,6 @@ func (s *AssetService) GetAsset(u *uow.UnitOfWork, assetID uint32) (*model.Asset
 
 // AddAsset 에셋 생성 또는 수량 증가를 UoW에 큐잉한다.
 func (s *AssetService) AddAsset(u *uow.UnitOfWork, assetID uint32, quantity int64) error {
-	now := uint32(time.Now().Unix())
-
 	asset, err := s.GetAsset(u, assetID)
 	if err != nil {
 		return err
@@ -41,18 +37,15 @@ func (s *AssetService) AddAsset(u *uow.UnitOfWork, assetID uint32, quantity int6
 
 	if asset == nil {
 		newAsset := &model.Asset{
-			UserID:     u.UserID(),
-			AssetID:    assetID,
-			Quantity:   quantity,
-			InsertTime: now,
-			UpdateTime: now,
+			UserID:   u.UserID(),
+			AssetID:  assetID,
+			Quantity: quantity,
 		}
 		uow.Create(u, uow.FieldAssets, newAsset, u.ShardDB())
 		return nil
 	}
 
 	asset.Quantity += quantity
-	asset.UpdateTime = now
 	uow.Update(u, asset, u.ShardDB())
 	return nil
 }
@@ -71,9 +64,7 @@ func (s *AssetService) ConsumeAsset(u *uow.UnitOfWork, assetID uint32, quantity 
 		return errcode.Newf(errcode.CodeAssetInsufficient, "insufficient asset: have %d, need %d", asset.Quantity, quantity)
 	}
 
-	now := uint32(time.Now().Unix())
 	asset.Quantity -= quantity
-	asset.UpdateTime = now
 	uow.Update(u, asset, u.ShardDB())
 	return nil
 }

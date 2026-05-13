@@ -30,7 +30,7 @@ import (
 )
 
 // designVersion testdata 디렉토리명과 일치해야 한다.
-const designVersion = "2.02.01.00"
+const designVersion = "1.00.00.00"
 
 var (
 	bootstrapOnce sync.Once
@@ -62,7 +62,7 @@ func initOnce() {
 		if err != nil {
 			panic(fmt.Errorf("testutil: database init [%s]: %w", db.Name, err))
 		}
-		database.RegisterShard(db.ShardID, d)
+		database.RegisterShard(db.ShardID, d, db.Weight)
 	}
 	for _, rc := range cfg.Redis {
 		if err := cache.Init(rc.Name, rc.Host, rc.Port, rc.Password, rc.DB); err != nil {
@@ -84,6 +84,9 @@ func initOnce() {
 	store.Replace(map[string]*design.Catalog{designVersion: cat})
 
 	ctn = container.New(store, nil, nil, nil)
+
+	// 모든 핸들러 테스트가 공유할 기본 계정 — TestAccount() 로 접근.
+	testAccount = CreateTestAccount()
 }
 
 func shutdown() {

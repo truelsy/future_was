@@ -19,6 +19,7 @@ func setupAccountHandler(c *container.Container) {
 	h := &accountHandler{
 		svc:      service.NewAccountService(repo),
 		assetSvc: service.NewAssetService(),
+		itemSvc:  service.NewItemService(),
 		c:        c,
 	}
 
@@ -28,5 +29,6 @@ func setupAccountHandler(c *container.Container) {
 type accountHandler struct {
 	svc      *service.AccountService
 	assetSvc *service.AssetService
+	itemSvc  *service.ItemService
 	c        *container.Container
 }

@@ -1,8 +1,6 @@
 package service
 
 import (
-	"time"
-
 	"future_was/internal/model"
 	"future_was/internal/repository"
 	"future_was/internal/uow"
@@ -24,18 +22,18 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 		return nil, false, err
 	}
 
-	now := uint32(time.Now().Unix())
-
 	if !found {
-		// 신규 계정: 즉시 INSERT하여 user_id를 할당한다.
+		// 신규 계정: shard 가중치 풀에서 DBShardID 선택 후 즉시 INSERT.
+		// InsertTime/UpdateTime은 DB의 DEFAULT/ON UPDATE CURRENT_TIMESTAMP가 채운다.
+		shardID, err := s.repo.PickShard()
+		if err != nil {
+			return nil, false, err
+		}
 		account := &model.Account{
 			ChannelUID: channelUID,
 			DeviceID:   deviceID,
 			IsActive:   1,
-			DBShardID:  10,
-			TableID:    -1,
-			InsertTime: now,
-			UpdateTime: now,
+			DBShardID:  shardID,
 		}
 		if err := uow.CreateNow(u, uow.FieldAccount, account, u.Container().GameDB); err != nil {
 			return nil, false, err
@@ -50,9 +48,8 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 		return nil, false, err
 	}
 
-	// 기존 계정: device_id/update_time 갱신 큐잉
+	// 기존 계정: device_id 갱신 큐잉
 	account.DeviceID = deviceID
-	account.UpdateTime = now
 	uow.Update(u, account, u.Container().GameDB)
 	return account, false, nil
 }

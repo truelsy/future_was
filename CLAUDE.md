@@ -94,6 +94,7 @@ database.IsNotFound(err)
 ## Conventions
 - 시간: `uint32(time.Now().Unix())`
 - `db` 태그 = 컬럼명, PK는 INSERT 자동 제외
+- `db:"<col>,auto"`: SELECT 매핑은 받되 INSERT/UPDATE 절에서 제외. DB의 `DEFAULT`/`ON UPDATE CURRENT_TIMESTAMP` 자동 관리 컬럼용 (예: `insert_time`, `update_time`)
 - Service는 `database` 직접 의존 X (`IsNotFound` 사용)
 - 자동 생성 파일(`schema/`, `pb/`) 직접 수정 금지
 - 새 도메인: model → repository → service → handler subpkg(`init()` 등록) → action ID

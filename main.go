@@ -43,7 +43,7 @@ func main() {
 		if err != nil {
 			log.Fatal().Err(err).Msgf("failed to init database [%s]: %v", dbCfg.Name, err)
 		}
-		database.RegisterShard(dbCfg.ShardID, db)
+		database.RegisterShard(dbCfg.ShardID, db, dbCfg.Weight)
 		log.Info().Msgf("database [%s] connected (shard_id=%d)", dbCfg.Name, dbCfg.ShardID)
 	}
 	defer database.CloseAll()

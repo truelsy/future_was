@@ -63,7 +63,7 @@ func dispatch(c echo.Context) error {
 	// 디스패처에서 1회 결정 후 UoW에 주입한다.
 	catalog := ctn.DesignStore.GetByClientVersion(req.ClientVersion)
 	if catalog == nil {
-		return SendGameError(c, req.Action, errcode.CodeUnsupportedVersion, "unsupported client_version")
+		return SendGameError(c, req.Action, errcode.CodeUnsupportedDesignVersion, "unsupported client_version")
 	}
 
 	// 세션 검증 (인증 면제 액션 제외). 토큰 일치 시 TTL을 sliding 갱신한다.

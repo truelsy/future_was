@@ -1,5 +1,5 @@
 package database
 
 const (
-	GameDBShardID = 0
+	GameDBShardID = 1
 )

@@ -50,13 +50,26 @@ func getMeta(m Model) *modelMeta {
 	}
 
 	for i := range t.NumField() {
-		tag := t.Field(i).Tag.Get("db")
-		if tag == "" || tag == "-" {
+		raw := t.Field(i).Tag.Get("db")
+		if raw == "" || raw == "-" {
 			continue
 		}
-		meta.columns = append(meta.columns, tag)
-		if tag != meta.pk {
-			meta.insertCols = append(meta.insertCols, tag)
+
+		// "<col>,<opt>,..." 형식. ",auto" 옵션이 있으면 DB가 채우는 컬럼으로 보고
+		// INSERT/UPDATE 절에서 제외한다 (예: TIMESTAMP DEFAULT CURRENT_TIMESTAMP).
+		// SELECT에는 그대로 포함되어 dest 필드로 매핑된다.
+		parts := strings.Split(raw, ",")
+		col := parts[0]
+		auto := false
+		for _, opt := range parts[1:] {
+			if opt == "auto" {
+				auto = true
+			}
+		}
+
+		meta.columns = append(meta.columns, col)
+		if col != meta.pk && !auto {
+			meta.insertCols = append(meta.insertCols, col)
 		}
 	}
 

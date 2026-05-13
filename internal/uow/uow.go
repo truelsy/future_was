@@ -12,7 +12,6 @@ import (
 	"future_was/internal/container"
 	"future_was/internal/database"
 	"future_was/internal/design"
-	"future_was/internal/model"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -134,38 +133,6 @@ func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *da
 	s.store[field] = list
 	_ = s.cache.Set(s.id, field, list)
 	return list, nil
-}
-
-// ---------------------------------------------------------------------------
-// 편의 래퍼 (기존 호출부 시그니처 유지)
-// ---------------------------------------------------------------------------
-
-func (u *UnitOfWork) Account() (*model.Account, error) {
-	return LoadOne[*model.Account](u, OwnerUser, FieldAccount, u.c.GameDB)
-}
-func (u *UnitOfWork) Assets() ([]*model.Asset, error) {
-	acc, err := u.Account()
-	if err != nil {
-		return nil, err
-	}
-	shardDB := database.GetShard(acc.DBShardID)
-	if shardDB == nil {
-		return nil, fmt.Errorf("assets: shard_id=%d에 해당하는 DB를 찾을 수 없음", acc.DBShardID)
-	}
-	return LoadList[*model.Asset](u, OwnerUser, FieldAssets, shardDB)
-}
-
-// Cards Account.DBShardID로 결정된 shard DB에서 카드를 로딩한다.
-func (u *UnitOfWork) Cards() ([]*model.Card, error) {
-	acc, err := u.Account()
-	if err != nil {
-		return nil, fmt.Errorf("cards: shard 라우팅을 위한 계정 로드 실패: %w", err)
-	}
-	shardDB := database.GetShard(acc.DBShardID)
-	if shardDB == nil {
-		return nil, fmt.Errorf("cards: shard_id=%d에 해당하는 DB를 찾을 수 없음", acc.DBShardID)
-	}
-	return LoadList[*model.Card](u, OwnerUser, FieldCards, shardDB)
 }
 
 // ---------------------------------------------------------------------------

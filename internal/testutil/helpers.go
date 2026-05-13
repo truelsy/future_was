@@ -28,6 +28,16 @@ func NewCtxWithUoW(userID uint64) echo.Context {
 	return c
 }
 
+// testAccount Bootstrap 시 한 번 만들어 모든 핸들러 테스트에서 공유한다.
+// TestAccount() 통해 접근.
+var testAccount *model.Account
+
+// TestAccount Bootstrap 후 사용 가능한 공용 테스트 계정을 반환한다.
+// 모든 핸들러 테스트(card/asset/...) 가 동일한 user_id 를 공유하므로
+// 도메인별 fixture(테스트 카드/에셋 등) 를 이 위에 얹기만 하면 된다.
+// 격리가 필요한 테스트는 CreateTestAccount 를 직접 호출.
+func TestAccount() *model.Account { return testAccount }
+
 // CreateTestAccount 매 호출마다 새 channel_uid로 신규 계정을 만들고 commit한다.
 // 프로덕션의 AccountService.Login 경로를 그대로 타므로 user_id가 즉시 부여되며
 // UserCache까지 채워진다. 셋업 실패 시 panic (테스트 setup 단계에서 fatal).
@@ -37,13 +47,26 @@ func CreateTestAccount() *model.Account {
 	u := uow.New(ctn, 0, catalog)
 
 	repo := repository.NewAccountRepository(ctn.GameDB)
-	svc := service.NewAccountService(repo)
+	accSvc := service.NewAccountService(repo)
 
 	channelUID := uint64(time.Now().UnixNano())
-	account, _, err := svc.Login(u, channelUID, "test-dev")
+	account, _, err := accSvc.Login(u, channelUID, "test-dev")
 	if err != nil {
 		panic(fmt.Errorf("testutil: create test account: %w", err))
 	}
+
+	// 초기 재화 지급
+	assetSvc := service.NewAssetService()
+	if err := assetSvc.AddAsset(u, 10000, 100); err != nil {
+		panic(fmt.Errorf("testutil: add test asset: %w", err))
+	}
+
+	// 초기 아이템 지급
+	itemSvc := service.NewItemService()
+	if err := itemSvc.AddItem(u, 25000, 5); err != nil {
+		panic(fmt.Errorf("testutil: add test item: %w", err))
+	}
+
 	if err := u.Commit(); err != nil {
 		panic(fmt.Errorf("testutil: commit test account: %w", err))
 	}
@@ -54,26 +77,16 @@ func CreateTestAccount() *model.Account {
 // JSONField 들은 zero value로 두어도 빈 객체/배열로 직렬화되며
 // (PotentialMap·PotentialExtraLevelList의 MarshalJSON), JSONField[any] 필드는
 // 빈 map을 명시해 NULL이 들어가지 않도록 한다.
-func CreateTestCard(account *model.Account, cardID uint32) *model.Card {
+func CreateTestCard(account *model.Account, svc *service.CardService, cardID uint32) *model.Card {
 	shardDB := database.GetShard(account.DBShardID)
 	if shardDB == nil {
 		panic(fmt.Errorf("testutil: shard %d not registered", account.DBShardID))
 	}
 
-	now := uint32(time.Now().Unix())
-	card := &model.Card{
-		UserID:     account.UserID,
-		CardID:     cardID,
-		Level:      1,
-		InsertTime: now,
-		UpdateTime: now,
+	card, err := svc.BuildCard(account.UserID, cardID)
+	if err != nil {
+		panic(fmt.Errorf("testutil: build test card: %w", err))
 	}
-	// JSONField[any] 필드들은 nil → "null" 직렬화를 피하기 위해 빈 map으로.
-	card.SpecialTrainingList.Data = map[string]any{}
-	card.EditionTraining.Data = map[string]any{}
-	card.ExSlotList.Data = map[string]any{}
-	card.PowerGradeInfo.Data = map[string]any{}
-	card.AdditionalData.Data = map[string]any{}
 
 	id, err := shardDB.Create(card)
 	if err != nil {

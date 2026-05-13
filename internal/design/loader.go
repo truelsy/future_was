@@ -144,6 +144,14 @@ func unmarshalInto(c *Catalog, name string, data []byte) error {
 		for _, v := range list {
 			c.currency.set(v.ItemId, v)
 		}
+	case "ITEM_LIST.json":
+		var list []*schema.ItemListDesign
+		if err := json.Unmarshal(data, &list); err != nil {
+			return err
+		}
+		for _, v := range list {
+			c.item.set(v.ItemId, v)
+		}
 	default:
 		// 알 수 없는 파일은 무시 (향후 추가될 도메인 대비).
 	}

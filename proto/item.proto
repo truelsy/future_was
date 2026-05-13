@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "future_was/pb";
+
+message ItemData {
+  uint64 idx = 1;
+  uint32 item_type = 2;
+  uint32 item_id = 3;
+  uint64 amount = 4;
+}
+
+message GetItemsRequest {
+}
+
+message GetItemsResponse {
+  repeated ItemData items = 1;
+}

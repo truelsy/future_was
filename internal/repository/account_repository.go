@@ -54,3 +54,9 @@ func (r *AccountRepository) Create(account *model.Account) (int64, error) {
 func (r *AccountRepository) Update(account *model.Account) (int64, error) {
 	return r.db.Save(account, "device_id", "update_time")
 }
+
+// PickShard 신규 계정에 할당할 shard ID를 가중치 풀에서 뽑는다.
+// 등록된 weight>0 shard가 없으면 ErrNoShardAvailable.
+func (r *AccountRepository) PickShard() (int8, error) {
+	return database.PickShard()
+}

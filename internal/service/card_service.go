@@ -31,3 +31,44 @@ func (s *CardService) GetCard(u *uow.UnitOfWork, cardIdx uint64) (*model.Card, e
 	}
 	return nil, nil
 }
+
+// BuildCard 유저가 새로운 카드를 생성한다.
+func (s *CardService) BuildCard(userId uint64, cardId uint32) (*model.Card, error) {
+	card := &model.Card{
+		Idx:                   0,
+		UserID:                userId,
+		CardID:                cardId,
+		TwoWayIdx:             0,
+		LevelBreakStep:        0,
+		LevelBreakCurMaterial: 0,
+		LimitBreakLevel:       0,
+		LimitBreakExp:         0,
+		Level:                 1,
+		Exp:                   0,
+		ExpExceed:             0,
+		ThemeID:               0,
+		ExtraThemeID:          0,
+		IsLock:                0,
+		Skill:                 model.JSONField[[]*model.SkillData]{},
+		PotentialList:         model.JSONField[model.PotentialMap]{},
+		EnhanceCardIdx:        0,
+	}
+
+	// todo: 카드의 기본 정보를 채워야 한다.
+	skills := make([]*model.SkillData, 0)
+	skills = append(skills, &model.SkillData{
+		Exp:     10,
+		Slot:    0,
+		Level:   1,
+		SkillID: 1,
+	})
+	skills = append(skills, &model.SkillData{
+		Exp:     10,
+		Slot:    1,
+		Level:   1,
+		SkillID: 2,
+	})
+	card.Skill.Data = skills
+
+	return card, nil
+}

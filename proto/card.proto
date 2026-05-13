@@ -12,28 +12,15 @@ message CardData {
   uint32 level_break_cur_material = 6;
   uint32 limit_break_level = 7;
   uint32 limit_break_exp = 8;
-  uint32 limit_break_exp_2 = 9;
-  uint32 level = 10;
-  uint32 exp = 11;
-  uint32 exp_exceed = 12;
-  uint32 theme_id = 13;
-  uint32 extra_theme_id = 14;
-  uint32 is_lock = 15;
-  repeated SkillData skill = 16;
-  map<uint32, uint32> potential_list = 17;
-  bytes potential_extra_level_list = 18;
-  bytes special_training_list = 19;
-  bytes edition_training = 20;
-  uint64 enhance_card_idx = 21;
-  uint32 max_opened_ex_slot = 22;
-  uint32 ex_slot_idx = 23;
-  bytes ex_slot_list = 24;
-  bytes power_grade_info = 25;
-  uint32 card_number = 26;
-  bytes additional_data = 27;
-  uint32 rising_picked = 28;
-  uint32 insert_time = 29;
-  uint32 update_time = 30;
+  uint32 level = 9;
+  uint32 exp = 10;
+  uint32 exp_exceed = 11;
+  uint32 theme_id = 12;
+  uint32 extra_theme_id = 13;
+  uint32 is_lock = 14;
+  repeated SkillData skill = 15;
+  map<uint32, uint32> potential_list = 16;
+  uint64 enhance_card_idx = 17;
 }
 
 message SkillData {
