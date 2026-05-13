@@ -69,3 +69,24 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 
 	return nil
 }
+
+// ConsumeItem 아이템 소비 처리
+func (s *ItemService) ConsumeItem(u *uow.UnitOfWork, itemID uint32, amount uint64) error {
+	item, err := s.GetItem(u, itemID)
+	if err != nil {
+		return err
+	}
+
+	if item == nil {
+		return errcode.Newf(errcode.CodeItemNotFound, "not found item. item_id(%v)", itemID)
+	}
+
+	if item.Amount < amount {
+		return errcode.Newf(errcode.CodeItemInsufficient, "not enough item. item_id(%v), amount(%v)", itemID, amount)
+	}
+
+	item.Amount -= amount
+	item.UpdateTime = time.Now()
+	uow.Update(u, item, u.ShardDB())
+	return nil
+}

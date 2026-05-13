@@ -5,7 +5,6 @@
 package uow
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 
@@ -15,9 +14,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 )
-
-// ErrNoUserID userID가 설정되지 않은 상태에서 로더를 호출했을 때 반환된다.
-var ErrNoUserID = errors.New("uow: userID is not set")
 
 // dbOp는 특정 데이터베이스에 바인딩된 큐잉된 쓰기 작업이다.
 type dbOp struct {
@@ -40,7 +36,8 @@ type UnitOfWork struct {
 	catalog   *design.Catalog
 	store     map[string]any // user scope
 	clubStore map[string]any // club scope
-	ops       []dbOp
+	dbOps     []dbOp
+	dirty     map[any]string // 같은 포인터가 여러 번 markDirty 돼도 1회만 sync 첨부.
 }
 
 // New 요청 단위 UnitOfWork를 생성한다. userID는 미확정 시 0 가능
@@ -54,7 +51,31 @@ func New(c *container.Container, userID uint64, catalog *design.Catalog) *UnitOf
 		catalog:   catalog,
 		store:     make(map[string]any),
 		clubStore: make(map[string]any),
+		dirty:     make(map[any]string),
 	}
+}
+
+// Dirty 이번 요청에서 변경된(생성/수정) 모델을 field별로 반환한다.
+// dispatch가 commit 후 envelope의 sync 필드를 채울 때 사용.
+func (u *UnitOfWork) Dirty() map[string][]any {
+	if len(u.dirty) == 0 {
+		return nil
+	}
+	out := make(map[string][]any, len(u.dirty))
+	for m, field := range u.dirty {
+		out[field] = append(out[field], m)
+	}
+	return out
+}
+
+// markDirty 모델 인스턴스를 dirty 추적에 추가한다.
+// 등록되지 않은 모델 타입은 무시 (sync 대상 아님).
+func (u *UnitOfWork) markDirty(m any) {
+	field, ok := fieldOf(m)
+	if !ok {
+		return
+	}
+	u.dirty[m] = field
 }
 
 func (u *UnitOfWork) UserID() uint64                  { return u.userID }
@@ -141,7 +162,7 @@ func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *da
 
 // queueOp DB 쓰기 작업을 큐잉한다. 서비스에서 도메인별 쓰기를 등록할 때 사용한다.
 func (u *UnitOfWork) queueOp(db *database.Database, fn func(tx *sqlx.Tx) error) {
-	u.ops = append(u.ops, dbOp{db: db, fn: fn})
+	u.dbOps = append(u.dbOps, dbOp{db: db, fn: fn})
 }
 
 // Create store에 추가하고 INSERT를 큐잉한다.
@@ -149,6 +170,7 @@ func (u *UnitOfWork) queueOp(db *database.Database, fn func(tx *sqlx.Tx) error) 
 // PK는 Commit 후에만 참조 가능하다. 즉시 PK가 필요하면 CreateNow를 사용한다.
 func Create[T database.Model](u *UnitOfWork, field string, m T, db *database.Database) {
 	storeModel(u, field, m)
+	u.markDirty(m)
 
 	u.queueOp(db, func(tx *sqlx.Tx) error {
 		id, err := database.CreateTx(tx, m)
@@ -170,6 +192,7 @@ func CreateNow[T database.Model](u *UnitOfWork, field string, m T, db *database.
 	}
 	m.SetPrimaryKey(id)
 	storeModel(u, field, m)
+	u.markDirty(m)
 
 	if field == FieldAccount {
 		u.SetUserID(uint64(id))
@@ -192,6 +215,7 @@ func storeModel[T database.Model](u *UnitOfWork, field string, m T) {
 
 // Update 지정된 컬럼의 UPDATE를 큐잉한다. 컬럼 미지정 시 PK 제외 전체 컬럼을 업데이트한다.
 func Update[T database.Model](u *UnitOfWork, m T, db *database.Database, columns ...string) {
+	u.markDirty(m)
 	u.queueOp(db, func(tx *sqlx.Tx) error {
 		_, err := database.SaveTx(tx, m, columns...)
 		return err
@@ -208,14 +232,14 @@ func Update[T database.Model](u *UnitOfWork, m T, db *database.Database, columns
 // (예: handler.CommitOrRollback).
 func (u *UnitOfWork) Commit() error {
 	// DB 인스턴스별로 ops를 그룹핑한다.
-	if len(u.ops) > 0 {
+	if len(u.dbOps) > 0 {
 		type group struct {
 			db  *database.Database
 			fns []func(tx *sqlx.Tx) error
 		}
 		var groups []group
 		idx := make(map[*database.Database]int)
-		for _, op := range u.ops {
+		for _, op := range u.dbOps {
 			i, ok := idx[op.db]
 			if !ok {
 				i = len(groups)
@@ -240,7 +264,7 @@ func (u *UnitOfWork) Commit() error {
 			}
 		}
 
-		u.ops = nil
+		u.dbOps = nil
 	}
 
 	// scope별 캐시 갱신.

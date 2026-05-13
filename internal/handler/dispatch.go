@@ -134,15 +134,19 @@ func dispatch(c echo.Context) error {
 		return SendGameError(c, req.Action, errcode.CodeInternalError, "marshal error")
 	}
 
-	return sendGameResponse(c, req.Action, errcode.CodeOK, body)
+	// 이번 요청에서 변경(생성/수정)된 모델들을 envelope sync 필드로 자동 첨부한다.
+	sync := BuildSyncData(u.Dirty())
+
+	return sendGameResponse(c, req.Action, errcode.CodeOK, body, sync)
 }
 
-func sendGameResponse(c echo.Context, action uint32, code int32, body []byte) error {
+func sendGameResponse(c echo.Context, action uint32, code int32, body []byte, sync *pb.SyncData) error {
 	resp := &pb.GameResponse{
 		Action:    action,
 		Code:      code,
 		Timestamp: time.Now().Unix(),
 		Body:      body,
+		Sync:      sync,
 	}
 	data, err := proto.Marshal(resp)
 	if err != nil {
@@ -156,5 +160,5 @@ func SendGameError(c echo.Context, action uint32, code int32, message string) er
 		Code:    code,
 		Message: message,
 	})
-	return sendGameResponse(c, action, code, errBody)
+	return sendGameResponse(c, action, code, errBody, nil)
 }

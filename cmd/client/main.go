@@ -19,6 +19,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ANSI 색상 코드. macOS/Linux 기본 터미널에서 정상 출력.
+const (
+	colorGreen = "\033[32m"
+	colorCyan  = "\033[36m"
+	colorReset = "\033[0m"
+)
+
 // action defines a callable API action.
 type action struct {
 	id       uint32
@@ -185,9 +192,8 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("\n--- Response (action=%d, code=%d) ---\n", gameResp.Action, gameResp.Code)
-
 		if gameResp.Code != 200 {
+			fmt.Printf("\n--- Response (action=%d, code=%d) ---\n", gameResp.Action, gameResp.Code)
 			var errResp pb.ErrorResponse
 			if err := proto.Unmarshal(gameResp.Body, &errResp); err == nil {
 				fmt.Printf("Error: %s\n", errResp.Message)
@@ -209,7 +215,14 @@ func main() {
 		}
 
 		out, _ := jsonOpts.Marshal(respMsg)
-		fmt.Println(string(out))
+		fmt.Printf("\n%s--- Response (action=%d, code=%d) ---\n%s%s\n",
+			colorGreen, gameResp.Action, gameResp.Code, string(out), colorReset)
+
+		// envelope sync: 이번 요청에서 서버가 변경한 엔티티(자동 첨부).
+		if gameResp.Sync != nil {
+			syncJSON, _ := jsonOpts.Marshal(gameResp.Sync)
+			fmt.Printf("\n%s--- Sync ---\n%s%s\n", colorCyan, string(syncJSON), colorReset)
+		}
 	}
 }
 

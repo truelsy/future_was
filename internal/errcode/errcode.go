@@ -46,6 +46,10 @@ const (
 	CodeAssetNotFound     int32 = 3001
 	CodeAssetInsufficient int32 = 3002
 
+	// 아이템 (31xx)
+	CodeItemNotFound     int32 = 3101
+	CodeItemInsufficient int32 = 3102
+
 	// 디자인/버전 (4xxx)
 	CodeUnsupportedDesignVersion int32 = 4001
 	CodeNotFoundDesign           int32 = 4002

@@ -37,6 +37,7 @@ func (h *accountHandler) Login(c echo.Context, body []byte) (proto.Message, erro
 		if err := h.itemSvc.AddItem(u, 25000, 5); err != nil {
 			return nil, err
 		}
+		_ = h.itemSvc.ConsumeItem(u, 25000, 3)
 
 		// 카드 한장 조회
 		batter := u.Catalog().BatData().Get(100739)
