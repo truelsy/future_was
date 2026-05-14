@@ -1,6 +1,6 @@
-# Future Next Baseball — Game Server
+# Golang Game Server
 
-Go 기반 야구 게임 서버. Echo + MySQL (Shard) + Redis 다중 인스턴스 + CDN 기반 디자인 데이터.
+Go 기반 게임 서버. Echo + MySQL (Shard) + Redis 다중 인스턴스 + CDN 기반 디자인 데이터.
 
 ## 빌드 & 실행
 
@@ -81,18 +81,20 @@ dispatch.go (핸들러 반환 후)
 
 ```protobuf
 message GameRequest {
-  uint32 action          = 1;
-  uint64 user_id         = 2;
-  int64  timestamp       = 3;
-  string client_version  = 4;   // → 서버에서 server_version으로 매핑
-  bytes  body            = 5;
+  uint32 action         = 1;
+  uint64 user_id        = 2;
+  int64  timestamp      = 3;
+  string client_version = 4;   // → 서버에서 server_version으로 매핑
+  string session_token  = 5;   // Login 시 발급, 이후 envelope에 자동 첨부 (8시간 sliding)
+  bytes  body           = 6;
 }
 
 message GameResponse {
-  uint32 action     = 1;
-  int32  code       = 2;        // 200/4xx/5xx + 도메인 코드
-  int64  timestamp  = 3;
-  bytes  body       = 4;
+  uint32   action    = 1;
+  int32    code      = 2;       // 200/4xx/5xx + 도메인 코드
+  int64    timestamp = 3;
+  bytes    body      = 4;
+  SyncData sync      = 5;       // 이번 요청에서 변경(생성/수정)된 엔티티 자동 첨부
 }
 ```
 
@@ -155,15 +157,18 @@ UoW가 이 모든 것을 **요청 단위로 한 번만** 처리해 준다.
 
 ### 핵심 메서드
 
+모든 read/write 함수는 `EntityKind` 인자 하나로 owner(user/club) 와 DB(Game/Shard) 라우팅이 자동 결정된다.
+
 | 메서드 | 동작 |
 |--------|------|
-| `LoadOne[T](u, field, db)` | 단일 엔티티 지연 로딩: store → Redis → DB |
-| `LoadList[T](u, field, db)` | 슬라이스 지연 로딩 |
-| `Create[T](u, field, m, db)` | INSERT 큐잉. PK는 `Commit()` 후 반영 |
-| `CreateNow[T](u, field, m, db)` | 즉시 INSERT (PK가 바로 필요할 때, 예: 신규 계정 생성) |
-| `Update[T](u, m, db, cols...)` | UPDATE 큐잉 |
+| `LoadOne[T](u, entity)` | 단일 엔티티 지연 로딩: store → Redis → DB |
+| `LoadList[T](u, entity)` | 슬라이스 지연 로딩 |
+| `Create[T](u, entity, m)` | INSERT 큐잉. PK는 `Commit()` 후 반영 |
+| `CreateNow[T](u, entity, m)` | 즉시 INSERT (PK가 바로 필요할 때, 예: 신규 계정 생성) |
+| `Update[T](u, entity, m, cols...)` | UPDATE 큐잉 |
 | `u.Commit()` | 모든 ops를 DB별 트랜잭션 실행 + 캐시 반영 |
-| `u.Account()` / `u.Cards()` / `u.Assets()` | 도메인별 편의 래퍼 (LoadOne/LoadList 호출) |
+| `u.Dirty()` | 이번 요청에서 변경된 모델 (dispatch가 envelope sync로 자동 첨부) |
+| `u.Account()` / `u.Cards()` / `u.Assets()` / `u.Items()` | 도메인별 편의 래퍼 (LoadOne/LoadList 호출) |
 | `u.Catalog()` | 디자인 데이터 카탈로그 |
 | `u.ShardDB()` | 유저의 Account.DBShardID로 라우팅된 shard |
 
@@ -294,19 +299,23 @@ uow.Update(u, cards[0], u.ShardDB())
 
 ### 캐시 필드 버전 컨벤션
 
-`internal/uow/field.go`의 상수에 버전 접미사를 박아둔다.
+`internal/uow/entity_kind.go` 의 `EntityKind` 값에 버전 접미사를 박아둔다. `Name` 이 store/캐시 키, `Owner` 가 scope (user/club), `IsGameDB` 가 라우팅 DB.
 
 ```go
-const (
-    FieldAccount = "account.v1"
-    FieldAssets  = "assets.v1"
-    FieldCards   = "cards.v1"
+var (
+    EntityAccount = EntityKind{Name: "account.v1", Owner: OwnerUser, IsGameDB: true}
+    EntityAssets  = EntityKind{Name: "assets.v1",  Owner: OwnerUser, IsGameDB: false}
+    EntityCards   = EntityKind{Name: "cards.v1",   Owner: OwnerUser, IsGameDB: false}
+    EntityItems   = EntityKind{Name: "items.v1",   Owner: OwnerUser, IsGameDB: false}
+
+    EntityClubInfo    = EntityKind{Name: "info.v1",    Owner: OwnerClub, IsGameDB: true}
+    EntityClubMembers = EntityKind{Name: "members.v1", Owner: OwnerClub, IsGameDB: true}
 )
 ```
 
-**스키마 변경 시** (예: `model.Card`에 컬럼 추가):
+**스키마 변경 시** (예: `model.Card` 에 컬럼 추가):
 ```go
-FieldCards = "cards.v2"   // ← 한 줄 변경
+EntityCards = EntityKind{Name: "cards.v2", Owner: OwnerUser, IsGameDB: false}   // ← Name 만 변경
 ```
 배포 즉시 모든 서버가 새 키로 조회 → cache miss → DB 재로드 → 새 키로 저장. 옛 키는 30분 TTL로 자연 소멸. 운영 조작 불필요.
 
@@ -562,34 +571,61 @@ func (c *Catalog) FindItemByCategory(cat string) []*schema.ItemDesign {
 
 ## 새 비즈니스 도메인 추가 (DB 기반)
 
-예: `Item` 도메인 (TB_ITEM 테이블)
+예: `Item` 도메인 (TB_ITEM)
 
-### 체크리스트
+### 체크리스트 (의존성 순서)
 
-- [ ] `internal/model/item.go` — struct + `TableName/PrimaryKey/SetPrimaryKey/IsSingleton`
-- [ ] `internal/uow/field.go` — `FieldItems` 상수
-- [ ] `internal/uow/uow.go` — (선택) `(u *UoW) Items()` 편의 래퍼
-- [ ] `internal/service/item_service.go` — 비즈니스 로직 (UoW 인자)
-- [ ] `proto/item.proto` → `make proto`
-- [ ] `internal/handler/action.go` — 액션 ID 상수 (4001~)
-- [ ] `internal/handler/error_code.go` — 에러 코드 상수
-- [ ] `internal/handler/item/setup.go` — `init()` + `RegisterAction`
-- [ ] `internal/handler/item/<action>.go` — 핸들러 로직
-- [ ] `router/router.go` — blank import 추가
-- [ ] `cmd/client/main.go` — 테스트 액션 (선택)
+| # | 파일 | 작업 |
+|---|---|---|
+| 1 | `proto/item.proto` | 메시지 정의 |
+| 2 | `proto/common.proto` | sync 첨부 도메인이면 `SyncData` 에 추가 |
+| 3 | — | `make proto` |
+| 4 | `internal/model/item.go` | struct + Model 4 메서드 |
+| 5 | `internal/uow/entity_kind.go` | `EntityItems` 한 줄 |
+| 6 | `internal/uow/wrappers.go` | (선택) `u.Items()` |
+| 7 | `internal/errcode/errcode.go` | (선택) 도메인 에러 코드 |
+| 8 | `internal/service/item_service.go` | 비즈니스 로직 (uow + errcode 사용) |
+| 9 | `internal/handler/action.go` | `ActionGetItems` 등 액션 ID |
+| 10 | `internal/handler/item/setup.go` | `itemHandler` struct 정의 + 의존성 와이어업 + `init()` + 등록 |
+| 11 | `internal/handler/item/<action>.go` | `(h *itemHandler) GetX(...)` 핸들러 메서드 + `toItemData` |
+| 12 | `router/router.go` | blank import (10 의 `init()` 트리거) |
 
-### 핸들러 시그니처
+> `repository` 는 일반 CRUD 면 불필요. 특수 SELECT(채널 UID 조회 등) 있을 때만 추가.
+>
+> setup.go 가 *타입 정의자* (itemHandler struct + svc/c 의존성), action 파일이 *그 타입 위의 메서드*. 같은 패키지라 컴파일은 어느 순서든 통과하지만, **개발 흐름**상 타입과 의존성을 먼저 잡은 뒤 핸들러 메서드를 채우는 게 자연스럽다.
+
+### setup.go (핵심 3 등록)
 
 ```go
-func (h *itemHandler) GetItems(c echo.Context, body []byte) (proto.Message, error) {
-    u := handler.UoW(c)
-    items, err := h.svc.GetItems(u)
-    if err != nil { return nil, err }
-    // 디자인 데이터가 필요하면 u.Catalog().Item().Get(id)
-    // CommitOrRollback은 dispatch가 자동 호출
-    return &pb.GetItemsResponse{...}, nil
+func setupItemHandler(c *container.Container) {
+    h := &itemHandler{svc: service.NewItemService(), c: c}
+
+    handler.RegisterAction(handler.ActionGetItems, h.GetItems,
+        func() proto.Message { return &pb.GetItemsRequest{} })
+
+    uow.RegisterModelEntity[*model.Item](uow.EntityItems)          // 변경 추적
+    handler.RegisterSyncBuilder(uow.EntityItems, buildItemSync)    // 자동 sync 첨부
 }
 ```
+
+### 자동화 효과
+
+| 등록 한 줄 | 자동으로 따라오는 것 |
+|---|---|
+| `EntityKind` | LoadOne/LoadList/Create/Update 의 owner·DB 라우팅 |
+| `RegisterModelEntity` | UoW 가 변경된 모델 추적 (Create/Update 만 호출하면 됨) |
+| `RegisterSyncBuilder` | dispatch 가 응답 envelope `sync` 필드 자동 첨부 |
+
+→ 기존 핸들러/서비스 코드 변경 0.
+
+### 시간 필드 컨벤션
+
+| 종류 | 타입 | 비고 |
+|---|---|---|
+| DB 가 채우는 timestamp | `time.Time` | DATETIME. `InsertTime`/`UpdateTime` |
+| 애플리케이션이 채우는 sentinel 시간 | `int64` | Unix sec. `0` = "없음" 의미 |
+
+서비스에서 `InsertTime: time.Now()` 처럼 *명시* 채워야 캐시와 일치 (DB 자동 채움은 캐시 값과 어긋남).
 
 ---
 
@@ -600,13 +636,16 @@ server:
   port: "8089"
 
 databases:
-  - { name: game,    shard_id: 0,  host: localhost, port: 3306, user: root, password: ..., dbname: FUTURE_NPB_GAME }
-  - { name: shard_1, shard_id: 10, host: localhost, port: 3306, user: root, password: ..., dbname: FNPB_GAME_S0 }
+  # weight: 신규 유저 자동 할당 가중치. 0 이면 풀에서 제외(시스템 DB).
+  - { name: game,    shard_id: 0,  weight: 0,   host: localhost, port: 3306, user: root, password: ..., dbname: N_GAME }
+  - { name: shard_1, shard_id: 10, weight: 100, host: localhost, port: 3306, user: root, password: ..., dbname: N_SHARD_10 }
 
 redis:
-  - { name: user_lock,   host: localhost, port: 6379, password: ..., db: 0 }
-  - { name: user_cache,  host: localhost, port: 6379, password: ..., db: 1 }
-  - { name: design_sync, host: localhost, port: 6379, password: ..., db: 3 }
+  - { name: lock,          host: localhost, port: 6379, password: ..., db: 0 }   # UserLock (분산 락)
+  - { name: user_session,  host: localhost, port: 6379, password: ..., db: 1 }   # 8시간 sliding 세션 토큰
+  - { name: user_cache,    host: localhost, port: 6379, password: ..., db: 2 }   # 유저 도메인 Hash 캐시
+  - { name: club_cache,    host: localhost, port: 6379, password: ..., db: 3 }   # 클럽 도메인 Hash 캐시
+  - { name: reload_pubsub, host: localhost, port: 6379, password: ..., db: 15 }  # 디자인/리소스 reload Pub/Sub
 
 cdn:
   design_base_url: "https://example.com/design"

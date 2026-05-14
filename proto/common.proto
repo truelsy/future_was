@@ -4,6 +4,7 @@ package proto;
 option go_package = "future_was/pb";
 
 import "item.proto";
+import "asset.proto";
 
 message ErrorResponse {
   int32 code = 1;
@@ -40,4 +41,5 @@ message GameResponse {
 // 새 도메인 추가 시 한 줄 추가 + 해당 도메인 setup에서 RegisterSyncBuilder 호출.
 message SyncData {
   repeated ItemData items = 1;
+  repeated AssetData assets = 2;
 }

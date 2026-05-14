@@ -14,6 +14,11 @@ func NewAssetService() *AssetService {
 	return &AssetService{}
 }
 
+// GetAssets 지정된 유저의 모든 에셋을 반환한다 (UoW를 통한 지연 로딩).
+func (s *AssetService) GetAssets(u *uow.UnitOfWork) ([]*model.Asset, error) {
+	return u.Assets()
+}
+
 // GetAsset 지정된 assetID의 에셋을 반환한다 (UoW를 통한 지연 로딩).
 // store에 포인터가 저장되므로, 반환된 포인터로 수정하면 store 스냅샷에 반영된다.
 func (s *AssetService) GetAsset(u *uow.UnitOfWork, assetID uint32) (*model.Asset, error) {
@@ -41,11 +46,12 @@ func (s *AssetService) AddAsset(u *uow.UnitOfWork, assetID uint32, quantity int6
 
 	if asset == nil {
 		newAsset := &model.Asset{
-			UserID:     u.UserID(),
-			AssetID:    assetID,
-			Quantity:   quantity,
-			InsertTime: now,
-			UpdateTime: now,
+			UserID:           u.UserID(),
+			AssetID:          assetID,
+			Quantity:         quantity,
+			LastRechargeTime: 0,
+			InsertTime:       now,
+			UpdateTime:       now,
 		}
 		uow.Create(u, uow.EntityAssets, newAsset)
 		return nil

@@ -22,11 +22,14 @@ type actionDef struct {
 
 // 액션 ID 상수 — 도메인별 그룹핑.
 const (
-	ActionLogin            uint32 = 1001
+	ActionLogin uint32 = 1001
+
 	ActionGetCards         uint32 = 2001
 	ActionUpgradeCardLevel uint32 = 2002
 
 	ActionGetItems uint32 = 3001
+
+	ActionGetAssets uint32 = 4001
 )
 
 // actionRegistry는 action_id → actionDef 매핑이다.

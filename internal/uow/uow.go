@@ -223,6 +223,7 @@ func CreateNow[T database.Model](u *UnitOfWork, entity EntityKind, m T) error {
 		return err
 	}
 	m.SetPrimaryKey(id)
+
 	storeModel(u, entity, m)
 	u.markDirty(m)
 

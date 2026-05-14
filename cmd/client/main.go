@@ -92,6 +92,19 @@ var actions = []action{
 		},
 		newResp: func() proto.Message { return &pb.GetItemsResponse{} },
 	},
+	{
+		id:   handler.ActionGetAssets,
+		name: "GetAssets",
+		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
+			uid, err := promptUint64(s, "user_id")
+			if err != nil {
+				return nil, err
+			}
+			a.userID = uid
+			return &pb.GetAssetsRequest{}, nil
+		},
+		newResp: func() proto.Message { return &pb.GetAssetsResponse{} },
+	},
 }
 
 func main() {

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "future_was/pb";
+
+message AssetData {
+  uint64 idx = 1;
+  uint32 asset_id = 2;
+  int64 amount = 3;
+  int64 last_recharge_time = 4;
+}
+
+message GetAssetsRequest {
+}
+
+message GetAssetsResponse {
+  repeated AssetData assets = 1;
+}
