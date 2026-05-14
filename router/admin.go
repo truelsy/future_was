@@ -2,8 +2,11 @@ package router
 
 import (
 	"net/http"
+	"time"
 
+	"future_was/internal/clock"
 	"future_was/internal/container"
+	"future_was/internal/repository"
 
 	"github.com/labstack/echo/v4"
 )
@@ -28,5 +31,50 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 			return ec.String(http.StatusInternalServerError, err.Error())
 		}
 		return ec.String(http.StatusOK, "OK: resource reloaded")
+	})
+
+	registerClockAdmin(g, c)
+}
+
+// registerClockAdmin 서버 시간 오프셋 admin API.
+// 호출받은 서버에만 즉시 적용. 다른 서버 인스턴스는 재시작 시 DB에서 로드.
+func registerClockAdmin(g *echo.Group, c *container.Container) {
+	repo := repository.NewAddServerTimeRepository(c.GameDB)
+
+	// POST /admin/clock/jump
+	// body: { "add_second": 86400, "user": "qa1" }
+	// add_second 는 *절대 오프셋(초)*. 그대로 clock 오프셋에 적용된다 (덮어쓰기).
+	// 0 을 보내면 원복.
+	g.POST("/clock/jump", func(ec echo.Context) error {
+		var req struct {
+			AddSecond int64  `json:"add_second"`
+			User      string `json:"user"`
+		}
+		if err := ec.Bind(&req); err != nil {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+		if req.User == "" {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": "user required"})
+		}
+
+		if err := repo.Create(req.AddSecond, req.User); err != nil {
+			return ec.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		clock.SetOffset(time.Duration(req.AddSecond) * time.Second)
+
+		return ec.JSON(http.StatusOK, map[string]any{
+			"add_second":   req.AddSecond,
+			"logical_time": clock.Now().Format(time.RFC3339),
+		})
+	})
+
+	// GET /admin/clock  현재 오프셋/시간 조회
+	g.GET("/clock", func(ec echo.Context) error {
+		return ec.JSON(http.StatusOK, map[string]any{
+			"offset_sec":   int64(clock.Offset().Seconds()),
+			"offset_human": clock.Offset().String(),
+			"real_time":    time.Now().Format(time.RFC3339),
+			"logical_time": clock.Now().Format(time.RFC3339),
+		})
 	})
 }

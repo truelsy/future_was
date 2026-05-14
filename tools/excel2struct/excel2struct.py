@@ -38,6 +38,7 @@ xlsx 포맷 (4행 헤더, 서버 전용):
   FLOAT/FLOAT32               → float32
   FLOAT64/DOUBLE/REAL         → float64
   BOOL/BOOLEAN                → bool
+  TIME/DATETIME               → int64  (excel2json 이 Unix sec 으로 변환)
 """
 
 import argparse
@@ -67,6 +68,9 @@ TYPE_MAP = {
     "FLOAT": "float32", "FLOAT32": "float32",
     "FLOAT64": "float64", "DOUBLE": "float64", "REAL": "float64",
     "BOOL": "bool", "BOOLEAN": "bool",
+    # TIME/DATETIME 은 excel2json 에서 'yyyy-mm-dd hh:mi:ss' → Unix sec(int64) 으로 변환된다.
+    # 따라서 Go schema 필드는 int64 로 받는다 (clock.Now().Unix() 와 직접 비교 가능).
+    "TIME": "int64", "DATETIME": "int64",
 }
 
 

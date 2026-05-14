@@ -120,13 +120,37 @@ INT_TYPES = {"INT", "INT8", "INT16", "INT32", "INT64", "UINT", "UINT8", "UINT16"
 FLOAT_TYPES = {"FLOAT", "FLOAT32", "FLOAT64", "DOUBLE", "REAL"}
 BOOL_TYPES = {"BOOL", "BOOLEAN"}
 STRING_TYPES = {"STRING", "STR", "TEXT"}
+TIME_TYPES = {"TIME", "DATETIME"}
+
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def parse_time_to_unix(v) -> int:
+    """TIME 셀(yyyy-mm-dd hh:mi:ss)을 로컬 timezone 기준 Unix sec 으로 변환한다.
+
+    pandas 가 datetime 으로 자동 파싱한 경우와 문자열로 들어온 경우 모두 처리.
+    """
+    if isinstance(v, datetime.datetime):
+        # pandas/openpyxl 이 datetime 으로 파싱한 셀. naive 면 로컬 timezone 가정.
+        return int(v.timestamp())
+    s = str(v).strip()
+    try:
+        dt = datetime.datetime.strptime(s, TIME_FORMAT)
+    except ValueError as e:
+        raise ValueError(
+            f"invalid TIME format (expected '{TIME_FORMAT.replace('%Y', 'yyyy').replace('%m', 'mm').replace('%d', 'dd').replace('%H', 'hh').replace('%M', 'mi').replace('%S', 'ss')}'): {s!r}"
+        ) from e
+    return int(dt.timestamp())
 
 
 def coerce_value(v, type_name: str):
     """타입에 맞는 기본값 적용 + 타입 캐스팅.
 
-    빈 셀 (NaN/None): STRING→"", INT→0, FLOAT→0.0, BOOL→False, 그 외→None.
-    값이 있을 경우: INT는 int, FLOAT는 float, BOOL은 bool로 캐스팅 (1.0 → 1).
+    빈 셀 (NaN/None): STRING→"", INT→0, FLOAT→0.0, BOOL→False, TIME→0(=설정 안 됨), 그 외→None.
+    값이 있을 경우:
+      - INT/FLOAT: 숫자 캐스팅
+      - BOOL: TRUE/1/Y/YES → True
+      - TIME: 'yyyy-mm-dd hh:mi:ss' → Unix sec (int64). 0 은 "설정 안 됨" sentinel.
     """
     is_empty = v is None or (isinstance(v, float) and math.isnan(v))
 
@@ -153,6 +177,10 @@ def coerce_value(v, type_name: str):
             return v
         s = str(v).strip().upper()
         return s in ("TRUE", "1", "Y", "YES")
+    if type_name in TIME_TYPES:
+        if is_empty:
+            return 0
+        return parse_time_to_unix(v)
     # 알 수 없는 타입: NaN은 None, 나머지는 그대로
     return None if is_empty else v
 

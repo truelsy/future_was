@@ -1,8 +1,7 @@
 package service
 
 import (
-	"time"
-
+	"future_was/internal/clock"
 	"future_was/internal/model"
 	"future_was/internal/uow"
 )
@@ -36,7 +35,7 @@ func (s *CardService) GetCard(u *uow.UnitOfWork, cardIdx uint64) (*model.Card, e
 
 // BuildCard 유저가 새로운 카드를 생성한다.
 func (s *CardService) BuildCard(userId uint64, cardId uint32) (*model.Card, error) {
-	now := time.Now()
+	now := clock.Now()
 	card := &model.Card{
 		Idx:                   0,
 		UserID:                userId,

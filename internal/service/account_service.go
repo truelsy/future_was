@@ -1,8 +1,7 @@
 package service
 
 import (
-	"time"
-
+	"future_was/internal/clock"
 	"future_was/internal/model"
 	"future_was/internal/repository"
 	"future_was/internal/uow"
@@ -24,7 +23,7 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 		return nil, false, err
 	}
 
-	now := time.Now()
+	now := clock.Now()
 
 	if !found {
 		// 신규 계정: shard 가중치 풀에서 DBShardID 선택 후 즉시 INSERT.

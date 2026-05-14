@@ -16,6 +16,7 @@ import (
 
 	"future_was/config"
 	"future_was/internal/cache"
+	"future_was/internal/clock"
 	"future_was/internal/container"
 	"future_was/internal/database"
 	"future_was/internal/design"
@@ -86,6 +87,20 @@ func main() {
 		cancel()
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed to load resource data")
+		}
+	}
+
+	// 서버 시간 오프셋 적용
+	{
+		repo := repository.NewAddServerTimeRepository(gameDB)
+		m, found, err := repo.FindLatest()
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to load server clock offset; using zero")
+		} else if found {
+			clock.SetOffset(time.Duration(m.AddSecond) * time.Second)
+			log.Info().Int64("add_second", m.AddSecond).
+				Str("editor", m.LastEditUserName).
+				Msgf("server clock offset applied: %v", clock.Offset())
 		}
 	}
 

@@ -12,8 +12,8 @@ type ServerMaintenance struct {
 	UseFlag            uint8     `db:"use_flag" json:"use_flag"`
 	LastModifier       string    `db:"last_modifier" json:"last_modifier"`
 	Description        string    `db:"description" json:"description"`
-	InsertTime         time.Time `db:"insert_time,auto" json:"insert_time"`
-	UpdateTime         time.Time `db:"update_time,auto" json:"update_time"`
+	InsertTime         time.Time `db:"insert_time" json:"insert_time"`
+	UpdateTime         time.Time `db:"update_time" json:"update_time"`
 }
 
 func (*ServerMaintenance) TableName() string        { return "TB_SERVER_MAINTENANCE" }

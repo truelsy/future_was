@@ -53,11 +53,6 @@ var actions = []action{
 		id:   handler.ActionGetCards,
 		name: "GetCards",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
-			uid, err := promptUint64(s, "user_id")
-			if err != nil {
-				return nil, err
-			}
-			a.userID = uid
 			return &pb.GetCardsRequest{}, nil
 		},
 		newResp: func() proto.Message { return &pb.GetCardsResponse{} },
@@ -66,11 +61,6 @@ var actions = []action{
 		id:   handler.ActionUpgradeCardLevel,
 		name: "UpgradeCardLevel",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
-			uid, err := promptUint64(s, "user_id")
-			if err != nil {
-				return nil, err
-			}
-			a.userID = uid
 			cardIdx, err := promptUint64(s, "card_idx")
 			if err != nil {
 				return nil, err
@@ -83,11 +73,6 @@ var actions = []action{
 		id:   handler.ActionGetItems,
 		name: "GetItems",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
-			uid, err := promptUint64(s, "user_id")
-			if err != nil {
-				return nil, err
-			}
-			a.userID = uid
 			return &pb.GetItemsRequest{}, nil
 		},
 		newResp: func() proto.Message { return &pb.GetItemsResponse{} },
@@ -96,14 +81,17 @@ var actions = []action{
 		id:   handler.ActionGetAssets,
 		name: "GetAssets",
 		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
-			uid, err := promptUint64(s, "user_id")
-			if err != nil {
-				return nil, err
-			}
-			a.userID = uid
 			return &pb.GetAssetsRequest{}, nil
 		},
 		newResp: func() proto.Message { return &pb.GetAssetsResponse{} },
+	},
+	{
+		id:   handler.ActionGetShopList,
+		name: "GetShopList",
+		buildReq: func(a *action, s *bufio.Scanner) (proto.Message, error) {
+			return &pb.GetShopListRequest{}, nil
+		},
+		newResp: func() proto.Message { return &pb.GetShopListResponse{} },
 	},
 }
 
@@ -117,6 +105,7 @@ func main() {
 
 	// Login 응답으로 받은 세션 토큰. 이후 모든 요청 envelope에 자동 첨부된다.
 	var sessionToken string
+	var userID uint64
 
 	fmt.Println("=== Future Next Baseball Client ===")
 	fmt.Printf("Server        : %s\n", *addr)
@@ -128,6 +117,7 @@ func main() {
 			fmt.Printf("  [%d] %s\n", a.id, a.name)
 		}
 		fmt.Printf("  [v] change client_version (current: %s)\n", *clientVersion)
+		fmt.Printf("  user_id : %v\n", userID)
 		fmt.Printf("  session_token : %s\n", shortToken(sessionToken))
 		fmt.Println("  [0] Exit")
 		fmt.Println()
@@ -171,7 +161,7 @@ func main() {
 
 		envelope := &pb.GameRequest{
 			Action:        act.id,
-			UserId:        act.userID,
+			UserId:        userID,
 			Timestamp:     time.Now().Unix(),
 			ClientVersion: *clientVersion,
 			SessionToken:  sessionToken,
@@ -224,6 +214,7 @@ func main() {
 
 		// Login 성공 시 세션 토큰을 보관하여 이후 요청 envelope에 자동 첨부한다.
 		if lr, ok := respMsg.(*pb.LoginResponse); ok {
+			userID = lr.UserId
 			sessionToken = lr.SessionToken
 		}
 

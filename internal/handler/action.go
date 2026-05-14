@@ -30,6 +30,8 @@ const (
 	ActionGetItems uint32 = 3001
 
 	ActionGetAssets uint32 = 4001
+
+	ActionGetShopList uint32 = 5001
 )
 
 // actionRegistry는 action_id → actionDef 매핑이다.

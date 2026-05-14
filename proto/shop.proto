@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package proto;
+option go_package = "future_was/pb";
+
+message ShopData {
+  uint32 idx = 1;
+  uint32 shop_id = 2;
+  uint32 type = 3;
+  int64 open_time = 4;
+  int64 close_time = 5;
+  uint32 asset_id = 6;
+  uint32 show_flag = 7;
+  uint32 price = 8;
+  uint32 shop_type = 9;
+  uint32 ticker = 10;
+}
+
+message GetShopListRequest {
+}
+
+message GetShopListResponse {
+  repeated ShopData shop_list = 1;
+}

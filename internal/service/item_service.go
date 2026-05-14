@@ -1,8 +1,7 @@
 package service
 
 import (
-	"time"
-
+	"future_was/internal/clock"
 	"future_was/internal/errcode"
 	"future_was/internal/model"
 	"future_was/internal/uow"
@@ -41,7 +40,7 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 		return err
 	}
 
-	now := time.Now()
+	now := clock.Now()
 
 	if item != nil {
 		item.Amount += amount
@@ -86,7 +85,7 @@ func (s *ItemService) ConsumeItem(u *uow.UnitOfWork, itemID uint32, amount uint6
 	}
 
 	item.Amount -= amount
-	item.UpdateTime = time.Now()
+	item.UpdateTime = clock.Now()
 	uow.Update(u, uow.EntityItems, item)
 	return nil
 }

@@ -126,11 +126,13 @@ func dispatch(c echo.Context) error {
 
 	// 핸들러 성공 후 UoW 커밋
 	if err := CommitOrRollback(u); err != nil {
+		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("commit failed: %v", err)
 		return SendGameError(c, req.Action, errcode.CodeInternalError, "commit failed")
 	}
 
 	body, err := proto.Marshal(result)
 	if err != nil {
+		log.Error().Uint64(log.KeyUserId, req.UserId).Uint32("action_id", req.Action).Msgf("marshal error: %v", err)
 		return SendGameError(c, req.Action, errcode.CodeInternalError, "marshal error")
 	}
 

@@ -13,8 +13,8 @@ type Version struct {
 	InspectionFlag  uint8     `db:"inspection_flag" json:"inspection_flag"`
 	CatalogFilename string    `db:"catalog_filename" json:"catalog_filename"`
 	Comment         string    `db:"comment" json:"comment"`
-	InsertTime      time.Time `db:"insert_time,auto" json:"insert_time"`
-	UpdateTime      time.Time `db:"update_time,auto" json:"update_time"`
+	InsertTime      time.Time `db:"insert_time" json:"insert_time"`
+	UpdateTime      time.Time `db:"update_time" json:"update_time"`
 }
 
 func (*Version) TableName() string        { return "TB_VERSION" }

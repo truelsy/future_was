@@ -1,5 +1,19 @@
 USE N_GAME;
 
+DROP TABLE IF EXISTS `TB_ADD_SERVER_TIME`;
+CREATE TABLE `TB_ADD_SERVER_TIME`
+(
+    `idx`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `add_second`          BIGINT      NOT NULL COMMENT '더해진 시간을 초로 환산한 값',
+    `last_edit_user_name` VARCHAR(20) NOT NULL DEFAULT '' COMMENT '마지막으로 수정한 유저이름' COLLATE 'utf8mb4_unicode_ci',
+    `insert_time` TIMESTAMP NOT NULL COMMENT '데이터 최초 생성일' DEFAULT CURRENT_TIMESTAMP,
+    `update_time` TIMESTAMP NOT NULL COMMENT '데이터 갱신일' DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`idx`) USING BTREE
+) COMMENT='서버 시간 변경 정보 테이블'
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB;
+
+
 DROP TABLE IF EXISTS `TB_ACCOUNT`;
 CREATE TABLE `TB_ACCOUNT`
 (

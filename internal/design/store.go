@@ -17,6 +17,7 @@ type Catalog struct {
 	batData  *Design[int32, *schema.BatDataDesign]
 	currency *Design[int32, *schema.CurrencyListDesign]
 	item     *Design[int32, *schema.ItemListDesign]
+	shop     *Design[int32, *schema.ShopListDesign]
 
 	// UseFlag = true인 BatData
 	batDataByUseFlag *Design[int32, *schema.BatDataDesign]
@@ -28,6 +29,7 @@ func NewCatalog(version string) *Catalog {
 		batData:          NewDesign[int32, *schema.BatDataDesign](),
 		currency:         NewDesign[int32, *schema.CurrencyListDesign](),
 		item:             NewDesign[int32, *schema.ItemListDesign](),
+		shop:             NewDesign[int32, *schema.ShopListDesign](),
 		batDataByUseFlag: NewDesign[int32, *schema.BatDataDesign](),
 	}
 }
@@ -38,6 +40,7 @@ func (c *Catalog) BatData() *Design[int32, *schema.BatDataDesign]          { ret
 func (c *Catalog) Currency() *Design[int32, *schema.CurrencyListDesign]    { return c.currency }
 func (c *Catalog) BatDataByUseFlag() *Design[int32, *schema.BatDataDesign] { return c.batDataByUseFlag }
 func (c *Catalog) Item() *Design[int32, *schema.ItemListDesign]            { return c.item }
+func (c *Catalog) Shop() *Design[int32, *schema.ShopListDesign]            { return c.shop }
 
 // Store 활성 client_version → Catalog 매핑을 관리한다.
 // 같은 server_version을 공유하는 여러 client_version은 동일 Catalog 포인터를 가리킨다.

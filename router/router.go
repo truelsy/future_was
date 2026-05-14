@@ -9,6 +9,7 @@ import (
 	_ "future_was/internal/handler/asset"
 	_ "future_was/internal/handler/card"
 	_ "future_was/internal/handler/item"
+	_ "future_was/internal/handler/shop"
 
 	"github.com/labstack/echo/v4"
 )
