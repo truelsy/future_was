@@ -47,13 +47,13 @@ func (s *AssetService) AddAsset(u *uow.UnitOfWork, assetID uint32, quantity int6
 			InsertTime: now,
 			UpdateTime: now,
 		}
-		uow.Create(u, uow.FieldAssets, newAsset, u.ShardDB())
+		uow.Create(u, uow.EntityAssets, newAsset)
 		return nil
 	}
 
 	asset.Quantity += quantity
 	asset.UpdateTime = now
-	uow.Update(u, asset, u.ShardDB())
+	uow.Update(u, uow.EntityAssets, asset)
 	return nil
 }
 
@@ -73,6 +73,6 @@ func (s *AssetService) ConsumeAsset(u *uow.UnitOfWork, assetID uint32, quantity 
 
 	asset.Quantity -= quantity
 	asset.UpdateTime = time.Now()
-	uow.Update(u, asset, u.ShardDB())
+	uow.Update(u, uow.EntityAssets, asset)
 	return nil
 }

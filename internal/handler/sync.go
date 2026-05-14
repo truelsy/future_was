@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"future_was/internal/uow"
 	"sync"
 
 	"future_was/pb"
@@ -15,21 +16,21 @@ var (
 	syncBuildersMu sync.RWMutex
 )
 
-// RegisterSyncBuilder field (uow.FieldItems 등) 에 대응하는 SyncData 빌더를 등록한다.
+// RegisterSyncBuilder EntityKind (uow.EntityItems 등) 에 대응하는 SyncData 빌더를 등록한다.
 // 도메인 setup 단계에서 1회 호출. (도메인 추가 시 한 블록)
 //
 // 사용 예 (setupItemHandler):
 //
-//	handler.RegisterSyncBuilder(uow.FieldItems, func(dirty []any, dst *pb.SyncData) {
+//	handler.RegisterSyncBuilder(uow.EntityItems, func(dirty []any, dst *pb.SyncData) {
 //	    for _, m := range dirty {
 //	        if it, ok := m.(*model.Item); ok {
 //	            dst.Items = append(dst.Items, toItemData(it))
 //	        }
 //	    }
 //	})
-func RegisterSyncBuilder(field string, fn SyncBuilder) {
+func RegisterSyncBuilder(entity uow.EntityKind, fn SyncBuilder) {
 	syncBuildersMu.Lock()
-	syncBuilders[field] = fn
+	syncBuilders[entity.Name] = fn
 	syncBuildersMu.Unlock()
 }
 
@@ -44,11 +45,11 @@ func BuildSyncData(dirty map[string][]any) *pb.SyncData {
 
 	out := &pb.SyncData{}
 	nonEmpty := false
-	for field, list := range dirty {
+	for name, list := range dirty {
 		if len(list) == 0 {
 			continue
 		}
-		if fn, ok := syncBuilders[field]; ok {
+		if fn, ok := syncBuilders[name]; ok {
 			fn(list, out)
 			nonEmpty = true
 		}

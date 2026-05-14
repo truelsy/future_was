@@ -28,7 +28,8 @@ type dbOp struct {
 //   - user scope: userID + store + UserCache (1유저당 1캐시)
 //   - club scope: clubID + clubStore + ClubCache (멤버 N명 공유)
 //
-// LoadOne/LoadList의 Owner 인자로 두 scope를 분기한다.
+// 모든 LoadOne/LoadList/Create/CreateNow/Update 는 EntityKind 인자를 받으며,
+// EntityKind.Owner 로 두 scope 를 분기하고 EntityKind.IsGameDB 로 GameDB/ShardDB 를 자동 라우팅한다.
 type UnitOfWork struct {
 	c         *container.Container
 	userID    uint64
@@ -55,15 +56,15 @@ func New(c *container.Container, userID uint64, catalog *design.Catalog) *UnitOf
 	}
 }
 
-// Dirty 이번 요청에서 변경된(생성/수정) 모델을 field별로 반환한다.
+// Dirty 이번 요청에서 변경된(생성/수정) 모델을 EntityKind.Name 별로 반환한다.
 // dispatch가 commit 후 envelope의 sync 필드를 채울 때 사용.
 func (u *UnitOfWork) Dirty() map[string][]any {
 	if len(u.dirty) == 0 {
 		return nil
 	}
 	out := make(map[string][]any, len(u.dirty))
-	for m, field := range u.dirty {
-		out[field] = append(out[field], m)
+	for m, name := range u.dirty {
+		out[name] = append(out[name], m)
 	}
 	return out
 }
@@ -71,11 +72,11 @@ func (u *UnitOfWork) Dirty() map[string][]any {
 // markDirty 모델 인스턴스를 dirty 추적에 추가한다.
 // 등록되지 않은 모델 타입은 무시 (sync 대상 아님).
 func (u *UnitOfWork) markDirty(m any) {
-	field, ok := fieldOf(m)
+	name, ok := entityNameOf(m)
 	if !ok {
 		return
 	}
-	u.dirty[m] = field
+	u.dirty[m] = name
 }
 
 func (u *UnitOfWork) UserID() uint64                  { return u.userID }
@@ -101,11 +102,12 @@ func (u *UnitOfWork) ShardDB() *database.Database {
 // ---------------------------------------------------------------------------
 
 // LoadOne 단일 엔티티를 지연 로딩한다 (scope store → Redis → DB).
-// owner로 user/club scope를 분기. T는 포인터 타입으로 database.Model을 구현해야 한다.
-func LoadOne[T database.Model](u *UnitOfWork, owner Owner, field string, db *database.Database) (T, error) {
-	s := u.scopeOf(owner)
+// entity.Owner 로 user/club scope를 분기, entity.IsGameDB 로 GameDB/ShardDB 를 라우팅한다.
+// T는 포인터 타입으로 database.Model을 구현해야 한다.
+func LoadOne[T database.Model](u *UnitOfWork, entity EntityKind) (T, error) {
+	s := u.scopeOf(entity.Owner)
 
-	if v, ok := s.store[field]; ok {
+	if v, ok := s.store[entity.Name]; ok {
 		return v.(T), nil
 	}
 	var zero T
@@ -114,26 +116,33 @@ func LoadOne[T database.Model](u *UnitOfWork, owner Owner, field string, db *dat
 	}
 
 	dest := reflect.New(reflect.TypeOf(zero).Elem()).Interface().(T)
-	if err := s.cache.Get(s.id, field, dest); err == nil {
-		s.store[field] = dest
+	if err := s.cache.Get(s.id, entity.Name, dest); err == nil {
+		s.store[entity.Name] = dest
 		return dest, nil
+	}
+
+	var db *database.Database
+	if entity.IsGameDB {
+		db = u.c.GameDB
+	} else {
+		db = u.ShardDB()
 	}
 
 	if err := db.FindOne(dest, s.where, s.id); err != nil {
 		return zero, err
 	}
-	s.store[field] = dest
-	_ = s.cache.Set(s.id, field, dest)
+	s.store[entity.Name] = dest
+	_ = s.cache.Set(s.id, entity.Name, dest)
 	return dest, nil
 }
 
 // LoadList 엔티티 슬라이스를 지연 로딩한다 (scope store → Redis → DB).
-// owner로 user/club scope를 분기. store에 []T를 저장하므로, 요소를 수정하면
-// scope store에 자동 반영된다.
-func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *database.Database) ([]T, error) {
-	s := u.scopeOf(owner)
+// entity.Owner 로 user/club scope를 분기, entity.IsGameDB 로 GameDB/ShardDB 를 라우팅한다.
+// store에 []T를 저장하므로, 요소를 수정하면 scope store에 자동 반영된다.
+func LoadList[T database.Model](u *UnitOfWork, entity EntityKind) ([]T, error) {
+	s := u.scopeOf(entity.Owner)
 
-	if v, ok := s.store[field]; ok {
+	if v, ok := s.store[entity.Name]; ok {
 		return v.([]T), nil
 	}
 	if s.id == 0 {
@@ -141,9 +150,16 @@ func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *da
 	}
 
 	var list []T
-	if err := s.cache.Get(s.id, field, &list); err == nil {
-		s.store[field] = list
+	if err := s.cache.Get(s.id, entity.Name, &list); err == nil {
+		s.store[entity.Name] = list
 		return list, nil
+	}
+
+	var db *database.Database
+	if entity.IsGameDB {
+		db = u.c.GameDB
+	} else {
+		db = u.ShardDB()
 	}
 
 	var zero T
@@ -151,8 +167,8 @@ func LoadList[T database.Model](u *UnitOfWork, owner Owner, field string, db *da
 	if err := db.FindList(&list, zeroVal, s.where, nil, s.id); err != nil {
 		return nil, err
 	}
-	s.store[field] = list
-	_ = s.cache.Set(s.id, field, list)
+	s.store[entity.Name] = list
+	_ = s.cache.Set(s.id, entity.Name, list)
 	return list, nil
 }
 
@@ -166,11 +182,19 @@ func (u *UnitOfWork) queueOp(db *database.Database, fn func(tx *sqlx.Tx) error) 
 }
 
 // Create store에 추가하고 INSERT를 큐잉한다.
-// Commit 시 트랜잭션 내에서 실행되며, auto-increment PK가 SetPrimaryKey로 반영된다.
+// entity.Owner 로 user/club scope 를 분기, entity.IsGameDB 로 GameDB/ShardDB 를 라우팅한다.
+// Commit 시 트랜잭션 내에서 실행되며, auto-increment PK 가 SetPrimaryKey 로 반영된다.
 // PK는 Commit 후에만 참조 가능하다. 즉시 PK가 필요하면 CreateNow를 사용한다.
-func Create[T database.Model](u *UnitOfWork, field string, m T, db *database.Database) {
-	storeModel(u, field, m)
+func Create[T database.Model](u *UnitOfWork, entity EntityKind, m T) {
+	storeModel(u, entity, m)
 	u.markDirty(m)
+
+	var db *database.Database
+	if entity.IsGameDB {
+		db = u.c.GameDB
+	} else {
+		db = u.ShardDB()
+	}
 
 	u.queueOp(db, func(tx *sqlx.Tx) error {
 		id, err := database.CreateTx(tx, m)
@@ -183,43 +207,62 @@ func Create[T database.Model](u *UnitOfWork, field string, m T, db *database.Dat
 }
 
 // CreateNow 즉시 INSERT하고 auto-increment PK를 SetPrimaryKey로 반영한다.
+// entity.Owner 로 user/club scope 를 분기, entity.IsGameDB 로 GameDB/ShardDB 를 라우팅한다.
 // 후속 로직에서 PK가 바로 필요한 경우 사용한다. Rollback 불가.
-// FieldAccount로 호출 시 PK가 userID이므로 UoW의 userID도 자동 설정된다.
-func CreateNow[T database.Model](u *UnitOfWork, field string, m T, db *database.Database) error {
+// EntityAccount로 호출 시 PK가 userID이므로 UoW의 userID도 자동 설정된다.
+func CreateNow[T database.Model](u *UnitOfWork, entity EntityKind, m T) error {
+	var db *database.Database
+	if entity.IsGameDB {
+		db = u.c.GameDB
+	} else {
+		db = u.ShardDB()
+	}
+
 	id, err := db.Create(m)
 	if err != nil {
 		return err
 	}
 	m.SetPrimaryKey(id)
-	storeModel(u, field, m)
+	storeModel(u, entity, m)
 	u.markDirty(m)
 
-	if field == FieldAccount {
+	if entity == EntityAccount {
 		u.SetUserID(uint64(id))
 	}
 	return nil
 }
 
-// storeModel Model의 IsSingleton 여부에 따라 store에 단일 또는 슬라이스로 저장한다.
-func storeModel[T database.Model](u *UnitOfWork, field string, m T) {
-	if m.IsSingleton() {
-		u.store[field] = m
-		return
-	}
-	if list, ok := u.store[field].([]T); ok {
-		u.store[field] = append(list, m)
-	} else {
-		u.store[field] = []T{m}
-	}
-}
-
-// Update 지정된 컬럼의 UPDATE를 큐잉한다. 컬럼 미지정 시 PK 제외 전체 컬럼을 업데이트한다.
-func Update[T database.Model](u *UnitOfWork, m T, db *database.Database, columns ...string) {
+// Update 지정된 컬럼의 UPDATE를 큐잉한다. entity.IsGameDB 로 GameDB/ShardDB 를 라우팅한다.
+// store는 건드리지 않으며 markDirty 로 변경 추적만 한다 (캐시는 Commit 시 store 통해 갱신).
+// 컬럼 미지정 시 PK 제외 전체 컬럼을 업데이트한다.
+func Update[T database.Model](u *UnitOfWork, entity EntityKind, m T, columns ...string) {
 	u.markDirty(m)
+
+	var db *database.Database
+	if entity.IsGameDB {
+		db = u.c.GameDB
+	} else {
+		db = u.ShardDB()
+	}
+
 	u.queueOp(db, func(tx *sqlx.Tx) error {
 		_, err := database.SaveTx(tx, m, columns...)
 		return err
 	})
+}
+
+// storeModel Model의 IsSingleton 여부에 따라 entity.Owner scope 의 store 에 단일 또는 슬라이스로 저장한다.
+func storeModel[T database.Model](u *UnitOfWork, entity EntityKind, m T) {
+	s := u.scopeOf(entity.Owner)
+	if m.IsSingleton() {
+		s.store[entity.Name] = m
+		return
+	}
+	if list, ok := s.store[entity.Name].([]T); ok {
+		s.store[entity.Name] = append(list, m)
+	} else {
+		s.store[entity.Name] = []T{m}
+	}
 }
 
 // ---------------------------------------------------------------------------

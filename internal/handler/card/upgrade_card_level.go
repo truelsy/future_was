@@ -27,7 +27,7 @@ func (h *cardHandler) UpgradeCardLevel(c echo.Context, body []byte) (proto.Messa
 
 	// 카드 레벨업 (임시 코드)
 	card.Level += 1
-	uow.Update(u, card, u.ShardDB())
+	uow.Update(u, uow.EntityCards, card)
 
 	return &pb.UpgradeCardLevelResponse{
 		Card: toCardData(card),

@@ -46,7 +46,7 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 	if item != nil {
 		item.Amount += amount
 		item.UpdateTime = now
-		uow.Update(u, item, u.ShardDB())
+		uow.Update(u, uow.EntityItems, item)
 		return nil
 	}
 
@@ -65,7 +65,7 @@ func (s *ItemService) AddItem(u *uow.UnitOfWork, itemID uint32, amount uint64) e
 		InsertTime: now,
 		UpdateTime: now,
 	}
-	uow.Create(u, uow.FieldItems, item, u.ShardDB())
+	uow.Create(u, uow.EntityItems, item)
 
 	return nil
 }
@@ -87,6 +87,6 @@ func (s *ItemService) ConsumeItem(u *uow.UnitOfWork, itemID uint32, amount uint6
 
 	item.Amount -= amount
 	item.UpdateTime = time.Now()
-	uow.Update(u, item, u.ShardDB())
+	uow.Update(u, uow.EntityItems, item)
 	return nil
 }

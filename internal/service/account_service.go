@@ -40,7 +40,7 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 			InsertTime: now,
 			UpdateTime: now,
 		}
-		if err := uow.CreateNow(u, uow.FieldAccount, account, u.Container().GameDB); err != nil {
+		if err := uow.CreateNow(u, uow.EntityAccount, account); err != nil {
 			return nil, false, err
 		}
 		return account, true, nil
@@ -56,6 +56,6 @@ func (s *AccountService) Login(u *uow.UnitOfWork, channelUID uint64, deviceID st
 	// 기존 계정: device_id/update_time 갱신 큐잉
 	account.DeviceID = deviceID
 	account.UpdateTime = now
-	uow.Update(u, account, u.Container().GameDB)
+	uow.Update(u, uow.EntityAccount, account)
 	return account, false, nil
 }

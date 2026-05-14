@@ -22,8 +22,8 @@ func setupItemHandler(c *container.Container) {
 	handler.RegisterAction(handler.ActionGetItems, h.GetItems, func() proto.Message { return &pb.GetItemsRequest{} })
 
 	// === 자동 동기화: 변경된 *model.Item 을 envelope sync.items 로 자동 첨부 ===
-	uow.RegisterModelField[*model.Item](uow.FieldItems)
-	handler.RegisterSyncBuilder(uow.FieldItems, func(dirty []any, dst *pb.SyncData) {
+	uow.RegisterModelEntity[*model.Item](uow.EntityItems)
+	handler.RegisterSyncBuilder(uow.EntityItems, func(dirty []any, dst *pb.SyncData) {
 		for _, m := range dirty {
 			if it, ok := m.(*model.Item); ok {
 				dst.Items = append(dst.Items, toItemData(it))
