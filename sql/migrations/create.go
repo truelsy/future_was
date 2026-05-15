@@ -32,6 +32,10 @@ var (
 	NamePattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9_]*$`)
 )
 
+// kstZone 마이그레이션 timestamp 용 고정 타임존 (UTC+9, DST 없음).
+// time.LoadLocation 대신 FixedZone 사용 — OS 의 tzdata 의존 제거.
+var kstZone = time.FixedZone("KST", 9*60*60)
+
 // CreateRequest 새 마이그레이션 파일 생성 요청 인자.
 type CreateRequest struct {
 	Category MigrationCategory // CategoryGame | CategoryShard
@@ -63,7 +67,9 @@ func CreateMigrationFile(req CreateRequest) (string, error) {
 		return "", ErrAuthorRequired
 	}
 
-	ts := time.Now().UTC().Format("20060102150405")
+	// 파일명 timestamp 와 헤더의 created 모두 KST 기준.
+	now := time.Now().In(kstZone)
+	ts := now.Format("20060102150405")
 	filename := fmt.Sprintf("%s_%s_%s.sql", ts, author, req.Name)
 	dir := filepath.Join(req.BaseDir, string(req.Category), req.Version)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -74,7 +80,7 @@ func CreateMigrationFile(req CreateRequest) (string, error) {
 		return "", ErrFileExists
 	}
 
-	content := buildTemplate(req.Name, author, req.UpSQL, req.DownSQL)
+	content := buildTemplate(req.Name, author, now, req.UpSQL, req.DownSQL)
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write: %w", err)
 	}
@@ -83,7 +89,8 @@ func CreateMigrationFile(req CreateRequest) (string, error) {
 
 // buildTemplate goose 어노테이션을 포함한 SQL 본문을 조립.
 // upSQL / downSQL 이 빈 문자열이면 마커 아래 빈 줄만 들어가 IDE 에서 채우면 되는 상태.
-func buildTemplate(name, author, upSQL, downSQL string) string {
+// createdAt 은 호출자가 결정한 KST 시각 (파일명 timestamp 와 일치하도록).
+func buildTemplate(name, author string, createdAt time.Time, upSQL, downSQL string) string {
 	upBody := strings.TrimRight(upSQL, " \n\t")
 	downBody := strings.TrimRight(downSQL, " \n\t")
 
@@ -98,14 +105,14 @@ func buildTemplate(name, author, upSQL, downSQL string) string {
 
 	return fmt.Sprintf(`-- migration: %s
 -- author:    %s
--- created:   %s UTC
+-- created:   %s
 
 -- +goose Up
 %s
 
 -- +goose Down
 %s
-`, name, author, time.Now().UTC().Format(time.RFC3339), upBlock, downBlock)
+`, name, author, createdAt.Format("2006-01-02 15:04:05 KST"), upBlock, downBlock)
 }
 
 // SanitizeAuthor 영문 소문자/숫자/언더스코어만 남기고 그 외는 제거.

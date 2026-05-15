@@ -16,6 +16,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+// ===== Admin server info =====
+
+export type Stage = 'local' | 'dev' | 'qa' | 'staging' | 'live'
+
+export type AdminInfo = {
+  stage: Stage
+}
+
+export const adminApi = {
+  info: () => request<AdminInfo>('/info'),
+}
+
 // ===== Clock =====
 
 export type ClockInfo = {

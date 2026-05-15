@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  adminApi,
   migrationsApi,
   type CreateMigrationInput,
   type DBMigrationStatus,
   type MigrationFileStatus,
+  type Stage,
 } from '../api/client'
 import DataTable, { createColumnHelper } from '../components/DataTable'
 
@@ -31,6 +33,8 @@ export default function MigrationsPage() {
   // 새 마이그레이션 생성 모달.
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState<string | null>(null) // 성공 시 생성된 경로
+  // 서버 stage — 파일 생성 기능은 로컬에서만 노출.
+  const [stage, setStage] = useState<Stage | null>(null)
 
   const refresh = async () => {
     setBusy(true)
@@ -46,6 +50,8 @@ export default function MigrationsPage() {
 
   useEffect(() => {
     refresh()
+    // 서버 stage 조회 — 1회. 실패해도 nothing critical (버튼만 안 보일 뿐).
+    adminApi.info().then((info) => setStage(info.stage)).catch(() => setStage(null))
   }, [])
 
   // 초기 진입: dbs 로드되면 GameDB 선택 (없으면 첫번째).
@@ -160,17 +166,27 @@ export default function MigrationsPage() {
   return (
     <section className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-100">DB 마이그레이션</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold text-slate-100">DB 마이그레이션</h2>
+          {stage && (
+            <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-xs text-slate-400">
+              stage={stage}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setCreated(null)
-              setCreating(true)
-            }}
-            className="rounded border border-indigo-700 bg-indigo-900/40 px-3 py-1.5 text-sm text-indigo-200 hover:bg-indigo-900/70"
-          >
-            + 새 마이그레이션
-          </button>
+          {/* 파일 생성은 로컬 전용 — 다른 환경에서는 git tree 가 없어 무의미. */}
+          {stage === 'local' && (
+            <button
+              onClick={() => {
+                setCreated(null)
+                setCreating(true)
+              }}
+              className="rounded border border-indigo-700 bg-indigo-900/40 px-3 py-1.5 text-sm text-indigo-200 hover:bg-indigo-900/70"
+            >
+              + 새 마이그레이션
+            </button>
+          )}
           <button
             onClick={refresh}
             disabled={busy}
@@ -186,6 +202,12 @@ export default function MigrationsPage() {
         본 페이지는 <span className="font-medium text-slate-200">read-only</span>.
         실제 적용/롤백은 터미널에서 <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200">make mig-up</code> /{' '}
         <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200">make mig-down</code> 으로만 가능.
+        {stage && stage !== 'local' && (
+          <>
+            {' '}
+            새 마이그레이션 파일 생성은 <span className="font-medium text-slate-200">로컬 환경에서만</span> 가능합니다 (현재: <span className="font-mono text-slate-200">{stage}</span>).
+          </>
+        )}
       </p>
 
       {error && (

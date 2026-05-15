@@ -2,6 +2,7 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"future_was/config"
 	"future_was/internal/admin_ui"
 	"future_was/internal/clock"
 	"future_was/internal/container"
@@ -51,15 +53,22 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 		return ec.String(http.StatusOK, "OK: resource reloaded")
 	})
 
+	// GET /admin/info  서버 메타 정보 (stage 등). 프론트가 환경별 분기에 사용.
+	g.GET("/info", func(ec echo.Context) error {
+		return ec.JSON(http.StatusOK, map[string]string{
+			"stage": string(c.Stage),
+		})
+	})
+
 	registerClockAdmin(g, c)
 	registerVersionAdmin(g, c)
-	registerMigrationsAdmin(g)
+	registerMigrationsAdmin(g, c)
 	registerAdminUI(g)
 }
 
-// registerMigrationsAdmin DB 마이그레이션 상태를 조회한다 (read-only).
+// registerMigrationsAdmin DB 마이그레이션 상태 조회 (read-only) + 파일 생성 (로컬 전용).
 // 실제 적용/롤백은 `make mig-up` CLI 만 지원. 운영 안전상 admin 페이지에서는 노출 X.
-func registerMigrationsAdmin(g *echo.Group) {
+func registerMigrationsAdmin(g *echo.Group, c *container.Container) {
 	type fileStatus struct {
 		Version   string `json:"version"` // 빈 문자열 = 루트 init
 		Filename  string `json:"filename"`
@@ -116,9 +125,15 @@ func registerMigrationsAdmin(g *echo.Group) {
 	})
 
 	// POST /admin/migrations  새 마이그레이션 SQL 파일을 디스크에 생성.
+	// **로컬 전용** — 다른 환경에서는 git tree 가 없어 파일 생성이 무의미하므로 차단.
 	// 서버는 프로젝트 루트에서 실행 중이어야 sql/migrations/ 경로가 올바르게 해석됨.
 	// 생성된 파일은 다음 `make mig-up` 시 go run 이 재빌드하면서 embed.FS 에 반영됨.
 	g.POST("/migrations", func(ec echo.Context) error {
+		if c.Stage != config.StageLocal {
+			return ec.JSON(http.StatusForbidden, map[string]string{
+				"error": fmt.Sprintf("migration file creation is only allowed in local stage (current: %s)", c.Stage),
+			})
+		}
 		var req struct {
 			Category string `json:"category"` // "game" | "shard"
 			Version  string `json:"version"`  // x.yy.zz
