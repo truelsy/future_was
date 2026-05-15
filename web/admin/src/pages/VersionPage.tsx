@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { versionApi, type Version, type VersionCreateInput } from '../api/client'
+import DataTable, {
+  SelectCheckbox,
+  createColumnHelper,
+  type RowSelectionState,
+} from '../components/DataTable'
 
 // 지원 app_id 목록 (운영 정책). 확장 시 이 배열에만 추가.
 const APP_IDS = [
@@ -20,6 +25,7 @@ const EMPTY_INPUT: VersionCreateInput = {
 
 export default function VersionPage() {
   const [rows, setRows] = useState<Version[] | null>(null)
+  const [selection, setSelection] = useState<RowSelectionState>({})
   const [input, setInput] = useState<VersionCreateInput>(EMPTY_INPUT)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -28,6 +34,7 @@ export default function VersionPage() {
   const refresh = async () => {
     try {
       setRows(await versionApi.list())
+      setSelection({}) // 새로 받아온 목록에서는 선택 초기화
     } catch (e) {
       setError(String(e))
     }
@@ -70,17 +77,35 @@ export default function VersionPage() {
     }
   }
 
-  const onDelete = async (row: Version) => {
+  const selectedIdxList = useMemo(
+    () =>
+      Object.entries(selection)
+        .filter(([, v]) => v)
+        .map(([k]) => Number(k)),
+    [selection],
+  )
+
+  const onDeleteSelected = async () => {
+    if (!rows || selectedIdxList.length === 0) return
+
+    const targets = rows.filter((r) => selectedIdxList.includes(r.idx))
+    const lines = targets
+      .slice(0, 10)
+      .map((r) => `  · idx=${r.idx} (${r.client_version} / ${r.server_version})`)
+      .join('\n')
+    const more = targets.length > 10 ? `\n  ... 외 ${targets.length - 10}건` : ''
+
     const ok = window.confirm(
-      `idx=${row.idx} (${row.client_version} / ${row.server_version}) 를 삭제하시겠습니까?\n` +
+      `${targets.length}건을 삭제하시겠습니까?\n\n${lines}${more}\n\n` +
         `Catalog 반영을 위해 삭제 후 Design Reload 를 눌러야 합니다.`,
     )
     if (!ok) return
+
     setBusy(true)
     setError(null)
     try {
-      await versionApi.delete(row.idx)
-      setInfo(`✓ 삭제 완료 (idx=${row.idx})`)
+      await Promise.all(targets.map((r) => versionApi.delete(r.idx)))
+      setInfo(`✓ ${targets.length}건 삭제 완료`)
       await refresh()
     } catch (e) {
       setError(String(e))
@@ -93,6 +118,73 @@ export default function VersionPage() {
     k: K,
     v: VersionCreateInput[K],
   ) => setInput((prev) => ({ ...prev, [k]: v }))
+
+  // 테이블 컬럼 정의. size 는 픽셀 단위 초기 너비.
+  // accessor 키 오타나 타입 불일치는 컴파일 에러로 잡힌다.
+  const columns = useMemo(() => {
+    const ch = createColumnHelper<Version>()
+    return [
+      ch.display({
+        id: 'select',
+        size: 40,
+        enableResizing: false,
+        header: ({ table }) => (
+          <SelectCheckbox
+            checked={table.getIsAllRowsSelected()}
+            indeterminate={table.getIsSomeRowsSelected()}
+            onChange={table.getToggleAllRowsSelectedHandler()}
+          />
+        ),
+        cell: ({ row }) => (
+          <SelectCheckbox
+            checked={row.getIsSelected()}
+            onChange={row.getToggleSelectedHandler()}
+          />
+        ),
+      }),
+      ch.accessor('idx', { header: 'idx', size: 80 }),
+      ch.accessor('client_version', { header: 'client', size: 120 }),
+      ch.accessor('server_version', {
+        header: 'server',
+        size: 140,
+        cell: ({ getValue }) => (
+          <span className="font-mono">{getValue()}</span>
+        ),
+      }),
+      ch.accessor('app_id', { header: 'app_id', size: 320 }),
+      ch.accessor('is_active', {
+        header: 'active',
+        size: 90,
+        cell: ({ getValue }) => {
+          const v = getValue()
+          return <Badge on={v === 1} label={v === 1 ? 'ON' : 'off'} />
+        },
+      }),
+      ch.accessor('update_flag', { header: 'update', size: 80 }),
+      ch.accessor('inspection_flag', { header: 'inspect', size: 80 }),
+      ch.accessor('comment', {
+        header: 'comment',
+        size: 240,
+        cell: ({ getValue }) => {
+          const v = getValue()
+          return (
+            <span title={v} className="block truncate">
+              {v}
+            </span>
+          )
+        },
+      }),
+      ch.accessor('insert_time', {
+        header: 'insert_time',
+        size: 180,
+        cell: ({ getValue }) => (
+          <span className="font-mono">{getValue()}</span>
+        ),
+      }),
+    ]
+  }, [])
+
+  const selectedCount = selectedIdxList.length
 
   return (
     <section className="space-y-6">
@@ -192,74 +284,39 @@ export default function VersionPage() {
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
           <h3 className="text-sm font-medium text-slate-400">
             버전 목록 (최근 200건)
+            {selectedCount > 0 && (
+              <span className="ml-2 text-slate-300">· {selectedCount}건 선택됨</span>
+            )}
           </h3>
-          <button
-            onClick={refresh}
-            className="rounded border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-200 hover:bg-slate-700"
-          >
-            새로고침
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={refresh}
+              disabled={busy}
+              className="rounded border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+            >
+              새로고침
+            </button>
+            <button
+              onClick={onDeleteSelected}
+              disabled={busy || selectedCount === 0}
+              className="rounded border border-rose-800 bg-rose-900/30 px-3 py-1 text-xs text-rose-300 hover:bg-rose-900/60 disabled:opacity-50 disabled:hover:bg-rose-900/30"
+            >
+              삭제{selectedCount > 0 ? ` (${selectedCount})` : ''}
+            </button>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-800 text-sm">
-            <thead className="bg-slate-950/50 text-xs uppercase tracking-wider text-slate-400">
-              <tr>
-                <Th>idx</Th>
-                <Th>client</Th>
-                <Th>server</Th>
-                <Th>app_id</Th>
-                <Th>active</Th>
-                <Th>update</Th>
-                <Th>inspect</Th>
-                <Th>comment</Th>
-                <Th>insert_time</Th>
-                <Th> </Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {rows === null && (
-                <tr>
-                  <td colSpan={10} className="px-5 py-4 text-slate-400">
-                    불러오는 중…
-                  </td>
-                </tr>
-              )}
-              {rows && rows.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="px-5 py-4 text-slate-400">
-                    행이 없습니다
-                  </td>
-                </tr>
-              )}
-              {rows?.map((r) => (
-                <tr key={r.idx} className="hover:bg-slate-800/50">
-                  <Td>{r.idx}</Td>
-                  <Td>{r.client_version}</Td>
-                  <Td mono>{r.server_version}</Td>
-                  <Td>{r.app_id}</Td>
-                  <Td>
-                    <Badge on={r.is_active === 1} label={r.is_active === 1 ? 'ON' : 'off'} />
-                  </Td>
-                  <Td>{r.update_flag}</Td>
-                  <Td>{r.inspection_flag}</Td>
-                  <Td className="max-w-xs truncate" title={r.comment}>
-                    {r.comment}
-                  </Td>
-                  <Td mono>{r.insert_time}</Td>
-                  <Td>
-                    <button
-                      onClick={() => onDelete(r)}
-                      disabled={busy}
-                      className="rounded border border-rose-800 bg-rose-900/30 px-2 py-1 text-xs text-rose-300 hover:bg-rose-900/60 disabled:opacity-50"
-                    >
-                      삭제
-                    </button>
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<Version>
+          data={rows ?? []}
+          columns={columns}
+          enableSelection
+          selection={selection}
+          onSelectionChange={setSelection}
+          getRowId={(r) => String(r.idx)}
+          loading={rows === null}
+          emptyText="행이 없습니다"
+          resize="vertical"
+          initialHeight={300}
+        />
       </div>
     </section>
   )
@@ -337,35 +394,6 @@ function NumberField({
         className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
       />
     </label>
-  )
-}
-
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-2 text-left font-medium">{children}</th>
-}
-
-function Td({
-  children,
-  mono,
-  className,
-  title,
-}: {
-  children: React.ReactNode
-  mono?: boolean
-  className?: string
-  title?: string
-}) {
-  return (
-    <td
-      className={[
-        'px-4 py-2 text-slate-200',
-        mono ? 'font-mono' : '',
-        className ?? '',
-      ].join(' ')}
-      title={title}
-    >
-      {children}
-    </td>
   )
 }
 

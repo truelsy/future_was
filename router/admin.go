@@ -1,8 +1,11 @@
 package router
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"future_was/internal/admin_ui"
@@ -114,15 +117,29 @@ func registerVersionAdmin(g *echo.Group, c *container.Container) {
 // registerAdminUI React SPA 정적 파일 서빙.
 // 빌드 산출물(internal/admin_ui/dist) 이 Go 바이너리에 embed 되어 있다.
 // SPA 라우팅을 위해 알 수 없는 경로는 index.html 로 fallback 한다 (BrowserRouter 호환).
+//
+// /admin/ui/clock 같이 브라우저 주소창에 직접 입력해도 index.html 로딩 →
+// React Router 가 클라이언트에서 라우팅한다.
 func registerAdminUI(g *echo.Group) {
 	uiFS := admin_ui.FS()
-	fileServer := http.FileServer(http.FS(uiFS))
-	stripped := http.StripPrefix("/admin/ui/", fileServer)
 
 	g.GET("/ui", func(ec echo.Context) error {
 		return ec.Redirect(http.StatusFound, "/admin/ui/")
 	})
-	g.GET("/ui/*", echo.WrapHandler(stripped))
+
+	g.GET("/ui/*", func(ec echo.Context) error {
+		p := strings.TrimPrefix(ec.Request().URL.Path, "/admin/ui/")
+		if p == "" {
+			p = "index.html"
+		}
+		// 파일이 존재하지 않거나 디렉토리면 SPA fallback 으로 index.html 반환.
+		info, err := fs.Stat(uiFS, p)
+		if errors.Is(err, fs.ErrNotExist) || (err == nil && info.IsDir()) {
+			p = "index.html"
+		}
+		http.ServeFileFS(ec.Response(), ec.Request(), uiFS, p)
+		return nil
+	})
 }
 
 // registerClockAdmin 서버 시간 오프셋 admin API.

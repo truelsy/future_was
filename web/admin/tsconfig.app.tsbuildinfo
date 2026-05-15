@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/pages/clockpage.tsx","./src/pages/versionpage.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/components/datatable.tsx","./src/pages/clockpage.tsx","./src/pages/versionpage.tsx"],"version":"5.9.3"}

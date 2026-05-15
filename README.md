@@ -629,6 +629,118 @@ func setupItemHandler(c *container.Container) {
 
 ---
 
+## Admin Web UI
+
+운영자가 시간 점프·버전 추가/삭제 같은 관리 작업을 브라우저에서 할 수 있는 페이지. **Go 바이너리 안에 React SPA 가 embed** 되어 한 프로세스로 배포된다.
+
+접속: `http://localhost:8089/admin/ui/`
+
+### 기술 스택
+
+| 영역 | 도구 | 역할 |
+|---|---|---|
+| UI 라이브러리 | **React 18** | 컴포넌트 기반 UI |
+| 언어 | **TypeScript** | 타입 안전 + IDE 자동완성 |
+| 빌드/dev 서버 | **Vite** | 빠른 dev (HMR) + 운영 번들 빌드 |
+| 스타일링 | **Tailwind CSS v4** | utility-first CSS, `<div className="rounded bg-slate-900 ...">` 형태로 디자인 |
+| 클라이언트 라우팅 | **react-router-dom** | `/clock`, `/version` 같은 페이지 전환을 *서버 요청 없이* 처리 |
+| 날짜 선택 | **react-flatpickr** | 24시간제 + 초 단위 datepicker |
+| 정적 파일 임베드 | **Go 1.22 `//go:embed`** | 빌드 산출물(`dist/`) 을 Go 바이너리에 포함 |
+
+### 디렉토리
+
+```
+web/admin/                       # React 프로젝트 (npm 영역)
+  package.json
+  vite.config.ts                 # outDir = ../../internal/admin_ui/dist, dev proxy 8089
+  index.html
+  src/
+    main.tsx                     # 엔트리. BrowserRouter basename="/admin/ui"
+    App.tsx                      # 좌측 nav + Routes 정의
+    index.css                    # @import "tailwindcss"
+    api/client.ts                # fetch wrapper (clockApi, versionApi)
+    pages/
+      ClockPage.tsx              # 시간 이동
+      VersionPage.tsx            # 버전 추가/삭제/목록
+
+internal/admin_ui/
+  ui.go                          # //go:embed all:dist
+  dist/                          # Vite 빌드 산출물 (placeholder index.html 만 git tracked)
+```
+
+### 빌드 / 실행
+
+```bash
+# 의존성 설치 (최초 1회)
+cd web/admin
+npm install
+
+# 운영 빌드 (한 바이너리)
+cd ..
+make release                     # admin-ui + go build 한 번에
+./server
+
+# 개발 모드 (HMR)
+make run                         # 터미널 1 - Go 서버 (8089)
+cd web/admin && npm run dev      # 터미널 2 - Vite (5173)
+# 브라우저: http://localhost:5173/  (vite proxy 가 /admin/* 를 8089 로 포워딩)
+```
+
+### 동작 흐름
+
+```
+[운영 모드]
+브라우저 → GET /admin/ui/        → Go 서버 → dist/index.html (embed 에서)
+                                            ↓
+                                  <script src="...index-XXX.js">
+                                            ↓
+                                  React 앱 부팅 → BrowserRouter
+                                            ↓
+                                  /clock 경로 → ClockPage 렌더
+                                            ↓
+                                  fetch('/admin/clock') 호출
+                                  → 같은 origin Go 서버 → JSON 응답
+
+[개발 모드 — HMR]
+브라우저 → http://localhost:5173 → Vite dev server (TS 즉시 컴파일)
+                                            ↓
+                                  소스 수정 시 변경분만 자동 반영 (HMR)
+                                            ↓
+                                  fetch('/admin/...') → Vite proxy
+                                  → http://localhost:8089/admin/...
+```
+
+### SPA 라우팅 (직접 URL 접속 처리)
+
+`/admin/ui/clock` 같이 *서버 URL* 로 직접 접속하려면 — 서버는 그 경로의 파일이 없으므로 기본 동작은 404.
+**해결**: Go 서버가 알려진 정적 파일(JS/CSS/이미지) 외에는 모두 `index.html` 로 fallback → React Router 가 클라이언트에서 라우팅.
+
+[router/admin.go](router/admin.go) `registerAdminUI` 의 SPA fallback 로직이 그 역할.
+
+### 새 페이지 추가 패턴
+
+1. `web/admin/src/pages/MyPage.tsx` 추가
+2. `web/admin/src/App.tsx` 에 두 줄:
+   ```tsx
+   <NavItem to="/my">내 페이지</NavItem>
+   <Route path="/my" element={<MyPage />} />
+   ```
+3. API 호출이 필요하면 `src/api/client.ts` 에 함수 추가
+4. Go 측에 admin 엔드포인트 추가 ([router/admin.go](router/admin.go))
+5. `npm run build` (또는 `make release`)
+
+### ⚠️ 인증
+
+현재 `/admin/*` 라우트는 **인증 없음** ([admin.go](router/admin.go) 의 `TODO`). 사내망/VPN 뒤에서만 사용하거나 운영 노출 전 Basic Auth 미들웨어 추가 필요:
+
+```go
+g.Use(middleware.BasicAuth(func(u, p string, _ echo.Context) (bool, error) {
+    return u == "admin" && p == os.Getenv("ADMIN_PASS"), nil
+}))
+```
+
+---
+
 ## Config (`config.yaml`)
 
 ```yaml
