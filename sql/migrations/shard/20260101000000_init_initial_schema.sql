@@ -1,8 +1,9 @@
-USE N_SHARD_10;
+-- +goose Up
+-- 초기 스키마 — 기존 sql/sharddb.sql 의 내용을 baseline 으로 채택.
+-- 이미 테이블이 존재하는 환경(기존 dev DB) 에서는 `make mig-baseline` 으로
+-- 실행 없이 적용 완료 마킹만 하는 것을 권장.
 
-DROP TABLE IF EXISTS `TB_ASSET`;
-CREATE TABLE `TB_ASSET`
-(
+CREATE TABLE `TB_ASSET` (
     `idx`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id`     BIGINT UNSIGNED NOT NULL COMMENT '유저 아이디',
     `asset_id`    INT UNSIGNED NOT NULL COMMENT '무료/유료는 id로 나뉨',
@@ -16,10 +17,7 @@ CREATE TABLE `TB_ASSET`
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
 
-
-DROP TABLE IF EXISTS `TB_CARD`;
-CREATE TABLE `TB_CARD`
-(
+CREATE TABLE `TB_CARD` (
     `idx`                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id`                  BIGINT UNSIGNED NOT NULL COMMENT '유저 아이디',
     `card_id`                  INT UNSIGNED NOT NULL COMMENT '카드 아이디',
@@ -45,10 +43,7 @@ CREATE TABLE `TB_CARD`
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
 
-
-DROP TABLE IF EXISTS `TB_ITEM`;
-CREATE TABLE `TB_ITEM`
-(
+CREATE TABLE `TB_ITEM` (
     `idx`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `user_id`       BIGINT UNSIGNED NOT NULL,
     `item_type`     TINYINT UNSIGNED NOT NULL COMMENT '아이템 타입',
@@ -61,3 +56,8 @@ CREATE TABLE `TB_ITEM`
 ) COMMENT='아이템 정보 테이블'
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
+
+-- +goose Down
+DROP TABLE IF EXISTS `TB_ITEM`;
+DROP TABLE IF EXISTS `TB_CARD`;
+DROP TABLE IF EXISTS `TB_ASSET`;

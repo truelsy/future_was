@@ -6,13 +6,22 @@ Go 기반 게임 서버. Echo + MySQL (Shard) + Redis 다중 인스턴스 + CDN 
 
 ```bash
 make build         # 서버 바이너리 빌드
-make run           # 서버 실행
+make run           # 서버 실행 (pending 마이그레이션 있으면 경고만, auto-apply 안 함)
 make proto         # protobuf 코드 재생성
 make vet           # 정적 분석
 make client        # 인터랙티브 테스트 클라이언트
 make design        # Excel → JSON 변환 (서버용 / TARGET=client 가능)
 make design-struct # Excel → Go struct (서버 전용)
 make clean         # 빌드 산출물 삭제
+```
+
+DB 마이그레이션 ([상세](#db-마이그레이션)):
+
+```bash
+make mig-status                                      # 현재 적용 상태
+make mig-up                                          # pending 모두 적용
+make mig-new-game version=2.01.02 name=add_col_x     # 새 마이그레이션 파일 생성
+make mig-baseline                                    # (최초 1회) 기존 DB 를 goose 관리로 편입
 ```
 
 ## 디렉토리 구조
@@ -24,7 +33,11 @@ make clean         # 빌드 산출물 삭제
 ├── router/                  # 디스패치 라우트 + Admin API
 ├── proto/                   # .proto 원본
 ├── pb/                      # protoc 생성 코드 (수정 금지)
-├── cmd/client/              # 인터랙티브 테스트 클라이언트
+├── cmd/
+│   ├── client/              # 인터랙티브 테스트 클라이언트
+│   └── migrator/            # DB 마이그레이션 CLI (goose wrapper)
+├── sql/
+│   └── migrations/          # 마이그레이션 SQL + goose wrapper (migrator.go) — embed.FS
 ├── tools/
 │   ├── excel2json/          # Excel → JSON (CDN 업로드용)
 │   └── excel2struct/        # Excel → Go struct (서버 전용)
@@ -577,6 +590,7 @@ func (c *Catalog) FindItemByCategory(cat string) []*schema.ItemDesign {
 
 | # | 파일 | 작업 |
 |---|---|---|
+| 0 | `sql/migrations/<db>/<버전>/...sql` | `make mig-new-{game,shard} version=X.YY.ZZ name=add_TB_ITEM` 으로 생성 후 CREATE TABLE 작성. `make mig-up` 으로 적용. ([상세](#db-마이그레이션)) |
 | 1 | `proto/item.proto` | 메시지 정의 |
 | 2 | `proto/common.proto` | sync 첨부 도메인이면 `SyncData` 에 추가 |
 | 3 | — | `make proto` |
@@ -626,6 +640,286 @@ func setupItemHandler(c *container.Container) {
 | 애플리케이션이 채우는 sentinel 시간 | `int64` | Unix sec. `0` = "없음" 의미 |
 
 서비스에서 `InsertTime: time.Now()` 처럼 *명시* 채워야 캐시와 일치 (DB 자동 채움은 캐시 값과 어긋남).
+
+---
+
+## DB 마이그레이션
+
+**도구**: [pressly/goose v3](https://github.com/pressly/goose) 를 wrap 한 자체 CLI (`cmd/migrator`).
+**전략**: 항상 명시적 (`make mig-up`) — auto-migrate 안 함. `make run` 은 pending 이 있으면 경고만 띄움.
+
+### 디렉토리 구조
+
+```
+sql/
+└── migrations/
+    ├── migrations.go                                 # embed.FS 선언
+    ├── game/                                         # 게임 DB 용 (TB_ACCOUNT, TB_VERSION 등)
+    │   ├── <시간>_init_initial_schema.sql            # baseline (루트, 버전 밖)
+    │   ├── 2.01.02/                                  # 릴리즈 단위 묶음
+    │   │   └── <시간>_<작업자>_<코멘트>.sql
+    │   └── 2.01.03/...
+    └── shard/                                        # 샤드 DB 용 (TB_CARD, TB_ITEM 등)
+        ├── <시간>_init_initial_schema.sql
+        └── 2.01.02/
+            └── ...
+```
+
+**파일명 규칙**: `<시간>_<작업자>_<코멘트>.sql`
+- `<시간>`: `YYYYMMDDhhmmss` (UTC) — goose 의 `version_id`
+- `<작업자>`: `git config user.email` 의 `@` 앞부분 (자동 추출), `--author` 로 override 가능
+- `<코멘트>`: snake_case 동작 설명
+
+**적용 순서**: 루트 init 파일 (timestamp 순) → 버전 디렉토리들 (lexicographic 순, `2.01.02 < 2.02.00 < 2.10.00`) → 디렉토리 내부 (timestamp 순).
+버전 디렉토리 간 timestamp 역전을 허용하기 위해 `goose.WithAllowMissing` 사용.
+
+### 워크플로 (A 개발자 → B 개발자)
+
+**A 개발자: 컬럼 추가**
+
+```bash
+# 1. 마이그레이션 파일 생성
+make mig-new-game version=2.01.02 name=add_account_last_seen
+# → sql/migrations/game/2.01.02/20260520143012_mega_add_account_last_seen.sql
+
+# 2. 파일 편집
+vi sql/migrations/game/2.01.02/*_add_account_last_seen.sql
+```
+
+```sql
+-- +goose Up
+ALTER TABLE TB_ACCOUNT ADD COLUMN last_seen BIGINT UNSIGNED NOT NULL DEFAULT 0;
+
+-- +goose Down
+ALTER TABLE TB_ACCOUNT DROP COLUMN last_seen;
+```
+
+```bash
+# 3. Go 모델에 필드 추가 → 로컬 적용
+vi internal/model/account.go
+make mig-up
+make run                                              # 동작 확인
+
+# 4. 커밋 & 푸시
+git add sql/migrations/ internal/model/account.go
+git commit -m "feat: TB_ACCOUNT.last_seen 컬럼 추가"
+git push
+```
+
+**B 개발자: pull 후**
+
+```bash
+git pull
+make run                                              # ⚠ pending 있음. make mig-up 먼저 실행하세요 — 경고 표시
+make mig-up                                           # 적용
+make run                                              # 정상 부팅
+```
+
+### 명령 reference
+
+| Make 타겟 | 동작 |
+|---|---|
+| `make mig-new-game version=X.YY.ZZ name=<코멘트>` | 게임 DB 마이그레이션 파일 생성 |
+| `make mig-new-shard version=X.YY.ZZ name=<코멘트>` | 샤드 DB 마이그레이션 파일 생성 |
+| `make mig-up` | game + 모든 shard 의 pending 적용 |
+| `make mig-up-game` / `make mig-up-shard` | 카테고리만 적용 |
+| `make mig-up-one` | pending 중 1 개만 적용 (디버깅) |
+| `make mig-down` | 직전 적용된 마이그레이션 1 개 롤백 (로컬만 권장) |
+| `make mig-status` | 현재 적용 상태 출력 |
+| `make mig-baseline` | (최초 1 회) 기존 DB 를 실행 없이 적용 완료로 마킹 |
+
+### 최초 1 회: Baseline
+
+이미 테이블이 존재하는 dev DB 를 goose 관리 체계로 편입할 때:
+
+```bash
+make mig-baseline      # SQL 실행 없이 goose_db_version 테이블에만 "적용 완료" 마킹
+make mig-status        # 모두 ✓ 인지 확인
+```
+
+빈 DB 라면 `make mig-baseline` 대신 그냥 `make mig-up` — init 부터 순서대로 실행됨.
+
+### 컨벤션 / 함정
+
+#### ✅ 권장
+
+**1. NOT NULL 컬럼 추가 시 DEFAULT 도 함께**
+
+```sql
+-- ✅ 좋음
+ALTER TABLE TB_ACCOUNT ADD COLUMN last_seen BIGINT UNSIGNED NOT NULL DEFAULT 0;
+
+-- ❌ 기존 행 채울 값이 없어 ALTER 자체가 실패
+ALTER TABLE TB_ACCOUNT ADD COLUMN last_seen BIGINT UNSIGNED NOT NULL;
+```
+
+DEFAULT 가 있으면 기존 모든 행이 그 값으로 자동 채워짐. NULL 허용이 의도가 아니라면 항상 DEFAULT 와 묶어서 작성.
+
+**2. 한 파일 = 한 의도**
+
+테이블 생성 + 컬럼 추가 + 인덱스 + 데이터 변경을 한 파일에 몰아넣지 말고 분리.
+
+```
+20260520143012_mega_add_TB_INVENTORY.sql        ← 테이블 생성
+20260520143200_mega_idx_inventory_user_id.sql   ← 인덱스
+20260520143500_mega_backfill_inventory.sql      ← 초기 데이터
+```
+
+이유: 한 파일이 중간에 실패하면 그 파일만 롤백되고 다음 파일은 시도 안 됨. 작은 단위로 쪼개야 어느 단계에서 멈췄는지 파악과 재시도가 쉽다.
+
+**3. 데이터 백필은 별도 작업으로 분리**
+
+마이그레이션 파일에는 DDL + 가벼운 DML 만. 무거운 백필(수십만 행 UPDATE 등) 은:
+- 별도 admin endpoint 로 노출하거나
+- one-shot cron 잡으로 처리
+
+이유:
+- 마이그레이션은 부팅 차단 단계가 아니지만 `make mig-up` 의 시간을 늘려 dev 흐름을 방해
+- 트랜잭션 한 번에 거대한 UPDATE 가 들어가면 락 시간 증가
+- 실패 시 부분 재시도가 어려움 (마이그레이션은 "한 번에 전부 또는 전무")
+
+**4. Down 마이그레이션 작성 — 로컬 검증용**
+
+```sql
+-- +goose Up
+ALTER TABLE TB_ACCOUNT ADD COLUMN last_seen BIGINT UNSIGNED NOT NULL DEFAULT 0;
+
+-- +goose Down
+ALTER TABLE TB_ACCOUNT DROP COLUMN last_seen;
+```
+
+로컬에서 `make mig-down` 으로 되돌렸다가 다시 `mig-up` 으로 적용해보며 양방향 검증 가능. **프로덕션에서는 호출하지 않는 게 컨벤션** — 잘못된 마이그레이션은 forward fix 로 해결 (아래 ❌ 4 참고).
+
+복구 불가한 경우 (예: DROP COLUMN 한 데이터를 되살릴 수 없음) 는 명시:
+```sql
+-- +goose Down
+SELECT 'no down: data loss not recoverable' AS warning;
+```
+
+**5. 멀티-statement 블록은 `StatementBegin/End` 로 묶기**
+
+goose 는 기본적으로 `;` 로 SQL 을 분리. 한 덩어리로 실행해야 하는 경우 명시:
+
+```sql
+-- +goose Up
+-- +goose StatementBegin
+INSERT INTO TB_VERSION (client_version, server_version, app_id, ...)
+VALUES ('2.01.02', '2.01.02.00', 'com.example.app', ...),
+       ('2.01.02', '2.01.02.00', 'com.example.app2', ...);
+-- +goose StatementEnd
+```
+
+또는 스토어드 프로시저 / 트리거 정의처럼 `;` 가 본문에 들어가는 경우 필수.
+
+---
+
+#### ❌ 금지 / 함정
+
+**1. 이미 머지된 마이그레이션 파일 수정**
+
+goose 는 `goose_db_version` 테이블에 **`version_id` 만** 저장. 파일 내용은 기록 안 함. 그래서:
+
+- A 가 작성한 파일이 A 의 로컬 DB 에 적용됨 → `version_id` 가 테이블에 박힘
+- A 가 파일 내용을 고치고 PR 머지
+- B 가 pull 받음 → goose 는 동일 `version_id` 가 이미 적용됐다고 판단해 **수정된 SQL 을 실행하지 않음**
+- B 의 DB 는 A 와 다른 상태로 끝남
+
+수정이 필요하면 **새 마이그레이션 파일** 로 fix 를 추가. 머지된 파일은 불변 원칙.
+
+**2. 마이그레이션 파일명 변경**
+
+`version_id` 는 파일명 앞 14 자리 timestamp 에서 추출됨. 파일명을 바꾸면 `version_id` 가 바뀜:
+- 누군가의 DB 에는 옛 `version_id` 가 적용된 채로 남음
+- 새 `version_id` 는 미적용으로 보여 재실행 → `CREATE TABLE` 같은 비-멱등 DDL 은 충돌
+
+`<작업자>` 부분이나 `<코멘트>` 만 바꿔도 timestamp 가 그대로면 OK. **timestamp 자체는 절대 변경 X**.
+
+**3. `goose_db_version` 테이블 수동 편집**
+
+DB 가 진짜 망가졌을 때의 최후 수단. 정상 상황에서는 절대 손대지 말 것. 한 번 박힌 적용 이력을 수동으로 지우면:
+- `mig-up` 이 이미 실행된 SQL 을 다시 실행 → 비-멱등 DDL 실패
+- 다른 개발자 환경과 상태 불일치
+
+복구가 필요하다면 forward fix migration 으로 해결.
+
+**4. 프로덕션에서 `make mig-down` 호출**
+
+Down 은 로컬 dev 검증용. 프로덕션 forward-only 정책:
+- Down 마이그레이션은 작성/테스트했지만 실제로 안 돌아본 경우 많음
+- 이미 새 코드가 새 스키마에 의존해 배포된 상태일 가능성
+- DROP COLUMN 류는 데이터 손실
+
+잘못된 마이그레이션은 **새 마이그레이션을 추가해 원하는 상태로 forward fix**:
+
+```sql
+-- 잘못 추가한 컬럼을 되돌리고 싶다면
+-- +goose Up
+ALTER TABLE TB_ACCOUNT DROP COLUMN wrong_col;
+
+-- +goose Down
+-- (의도적으로 비움 — 이건 fix migration)
+```
+
+**5. 큰 테이블에 락을 길게 거는 ALTER**
+
+MySQL 의 일부 DDL 은 테이블을 락. 행이 수백만 이상인 테이블에 무심코 ALTER 하면 서비스 영향. 대안:
+- InnoDB online DDL 옵션 명시: `ALGORITHM=INPLACE, LOCK=NONE`
+  ```sql
+  ALTER TABLE TB_CARD ADD COLUMN new_col INT NOT NULL DEFAULT 0,
+    ALGORITHM=INPLACE, LOCK=NONE;
+  ```
+- 큰 테이블이 예상되면 `pt-online-schema-change` 같은 도구를 고려 (마이그레이션 외부)
+
+dev 환경에서는 문제가 안 보이므로 **운영 테이블 규모를 항상 인지** 하고 작성.
+
+**6. MySQL DDL 의 implicit commit**
+
+```sql
+-- +goose Up
+START TRANSACTION;
+ALTER TABLE TB_X ADD COLUMN a INT;   -- 여기서 implicit commit 발생
+ALTER TABLE TB_X ADD COLUMN b INT;   -- 위 ALTER 가 이미 commit 됐음
+ROLLBACK;                            -- ALTER 들은 롤백 안 됨
+```
+
+MySQL 의 DDL 은 트랜잭션 안에 있어도 implicit commit 됨. 그래서:
+- 한 마이그레이션에 여러 ALTER 를 넣고 중간 실패해도 앞쪽 ALTER 는 commit 된 채로 남음
+- → **컨벤션 #2 (한 파일 = 한 의도)** 가 더 중요해지는 이유
+
+**7. 멀티-인스턴스 동시 부팅 시 마이그레이션 경쟁**
+
+이 프로젝트는 `auto_migrate` 안 함 (배포 파이프라인에서 명시적 `mig-up`) 이라 해당 없음. 다만 만약 부팅 시 자동 적용을 켠다면:
+- 여러 인스턴스가 동시에 `mig-up` 시도 → goose 가 advisory lock 사용 안 함 → 같은 마이그레이션이 두 번 실행될 수 있음
+- 보호하려면: 한 인스턴스만 실행하는 정책, 또는 외부 락 (Redis 락 등) 으로 직렬화
+
+**8. 같은 timestamp 충돌 (PR 동시 작성)**
+
+A 와 B 가 정확히 같은 초에 `make mig-new-game` 호출하면 동일 `version_id` 파일이 만들어짐. 머지 시점에 충돌하면:
+- PR 리뷰에서 한쪽 파일명을 1 초 늦춰 rename (단, **머지 전** 에 한해)
+- 머지 후 발견되면 forward fix 로 처리
+
+타임스탬프는 초 단위라 사실상 거의 발생 X. 발생하면 goose 가 PK 충돌 (`goose_db_version.id` 가 아니라 version_id 의 중복 사용) 로 실패하므로 늦게 감지될 일은 없음.
+
+### 동시 작업 (A 와 B 가 같은 날 마이그레이션 작성)
+
+- 파일명 = timestamp 라 충돌 X. 머지 순서대로 version_id 가 결정됨.
+- 같은 컬럼을 양쪽이 건드리면 두 번째 ALTER 가 실패 → PR 리뷰에서 잡아야 함 (도구가 막아주지 않음).
+
+### Go 측 통합
+
+```
+sql/migrations/
+├── migrations.go      # package migrations — //go:embed game shard (embed.FS)
+├── migrator.go        # package migrations — MigrateUp/Down/UpByOne/Status/Baseline
+├── game/
+└── shard/
+
+cmd/migrator/main.go   # 위 함수를 CLI 서브커맨드 (create / up / down / status / baseline) 로 노출
+```
+
+- 마이그레이션 SQL 과 그것을 적용하는 Go wrapper 가 **같은 패키지(`sql/migrations`)** 에 공존 — `internal/admin_ui` 가 `embed.FS` 와 `FS()` 헬퍼를 한 패키지에 두는 것과 동일한 패턴.
+- 적용 순서는 `migrator.go` 의 walker 가 결정: **루트 init 파일 → 버전 디렉토리들** (lexicographic).
+- **부팅 시 자동 적용 안 함** — `main.go` 는 마이그레이션을 호출하지 않음. `make run` 의 pre-check 가 pending 을 경고로만 표시.
 
 ---
 

@@ -1,8 +1,9 @@
-USE N_GAME;
+-- +goose Up
+-- 초기 스키마 — 기존 sql/gamedb.sql 의 내용을 baseline 으로 채택.
+-- 이미 테이블이 존재하는 환경(기존 dev DB) 에서는 `make mig-baseline` 으로
+-- 실행 없이 적용 완료 마킹만 하는 것을 권장.
 
-DROP TABLE IF EXISTS `TB_ADD_SERVER_TIME`;
-CREATE TABLE `TB_ADD_SERVER_TIME`
-(
+CREATE TABLE `TB_ADD_SERVER_TIME` (
     `idx`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `add_second`          BIGINT      NOT NULL COMMENT '더해진 시간을 초로 환산한 값',
     `last_edit_user_name` VARCHAR(20) NOT NULL DEFAULT '' COMMENT '마지막으로 수정한 유저이름' COLLATE 'utf8mb4_unicode_ci',
@@ -13,10 +14,7 @@ CREATE TABLE `TB_ADD_SERVER_TIME`
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
 
-
-DROP TABLE IF EXISTS `TB_ACCOUNT`;
-CREATE TABLE `TB_ACCOUNT`
-(
+CREATE TABLE `TB_ACCOUNT` (
     `user_id`     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '게임서버가 발급한 유저 id',
     `channel_uid` BIGINT UNSIGNED NOT NULL COMMENT '하이브에서 발급한 유저 id',
     `device_id`   VARCHAR(20) NOT NULL COMMENT '하이브에서 발급한 디바이스 id' COLLATE 'utf8mb4_unicode_ci',
@@ -31,11 +29,7 @@ COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB
 AUTO_INCREMENT=1000000;
 
-
-
-DROP TABLE IF EXISTS `TB_SERVER_MAINTENANCE`;
-CREATE TABLE `TB_SERVER_MAINTENANCE`
-(
+CREATE TABLE `TB_SERVER_MAINTENANCE` (
     `idx`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `server_type`         TINYINT UNSIGNED NOT NULL DEFAULT '1' COMMENT '점검 서버 종류 (1: 웹서버 만 사용함)',
     `start_time`          INT UNSIGNED NOT NULL COMMENT '점검 시작 시간',
@@ -53,12 +47,7 @@ CREATE TABLE `TB_SERVER_MAINTENANCE`
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
 
-
-
-
-DROP TABLE IF EXISTS `TB_VERSION`;
-CREATE TABLE `TB_VERSION`
-(
+CREATE TABLE `TB_VERSION` (
     `idx`              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `client_version`   VARCHAR(10)  NOT NULL COLLATE 'utf8mb4_unicode_ci',
     `server_version`   VARCHAR(10)  NOT NULL COLLATE 'utf8mb4_unicode_ci',
@@ -76,6 +65,12 @@ CREATE TABLE `TB_VERSION`
 COLLATE='utf8mb4_unicode_ci'
 ENGINE=InnoDB;
 
-insert into N_GAME.TB_VERSION (client_version, server_version, app_id, is_active, update_flag, inspection_flag, catalog_filename, comment)
-values  ('2.01.01', '2.01.01.00', 'com.com2us.heatfuturenpb.android.google.jp.normal', 1, 0, 0, 'catalog_2.01.01.json', ''),
+INSERT INTO TB_VERSION (client_version, server_version, app_id, is_active, update_flag, inspection_flag, catalog_filename, comment)
+VALUES  ('2.01.01', '2.01.01.00', 'com.com2us.heatfuturenpb.android.google.jp.normal', 1, 0, 0, 'catalog_2.01.01.json', ''),
         ('2.01.01', '2.01.01.00', 'com.com2us.ent.futurenpb', 1, 0, 0, 'catalog_2.01.01.json', '');
+
+-- +goose Down
+DROP TABLE IF EXISTS `TB_VERSION`;
+DROP TABLE IF EXISTS `TB_SERVER_MAINTENANCE`;
+DROP TABLE IF EXISTS `TB_ACCOUNT`;
+DROP TABLE IF EXISTS `TB_ADD_SERVER_TIME`;
