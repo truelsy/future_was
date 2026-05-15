@@ -1,8 +1,15 @@
-.PHONY: build run proto clean vet test client design design-struct
+.PHONY: build run proto clean vet test client design design-struct admin-ui release
 
-# 서버 빌드
+# 서버 빌드 (admin UI 미빌드 시 placeholder 페이지가 embed 됨 — 운영 배포는 `make release` 사용)
 build:
 	go build -o server .
+
+# 어드민 React SPA 빌드 (Vite 출력이 internal/admin_ui/dist 로 직접 들어감)
+admin-ui:
+	cd web/admin && npm install && npm run build
+
+# 운영 배포용 — UI + Go 둘 다 빌드
+release: admin-ui build
 
 # 서버 실행
 run:

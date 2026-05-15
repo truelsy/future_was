@@ -21,7 +21,7 @@ func setupAssetHandler(c *container.Container) {
 
 	handler.RegisterAction(handler.ActionGetAssets, h.GetAssets, func() proto.Message { return &pb.GetAssetsRequest{} })
 
-	// === 자동 동기화: 변경된 *model.Asset 을 envelope sync.assets 로 자동 첨부 ===
+	// === 자동 동기화: 변경된 *model.Item 을 envelope sync.assets 로 자동 첨부 ===
 	uow.RegisterModelEntity[*model.Asset](uow.EntityAssets)
 	handler.RegisterSyncBuilder(uow.EntityAssets, func(dirty []any, dst *pb.SyncData) {
 		for _, m := range dirty {
