@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"future_was/internal/log"
+	"future_was/internal/util"
 	"sync"
 
 	"github.com/redis/go-redis/v9"
@@ -11,13 +12,16 @@ import (
 // PubSubChannel 리소스 reload 알림용 Redis Pub/Sub 채널.
 const PubSubChannel = "resource:reload"
 
-// reloadPayload Pub/Sub 메시지 페이로드. 단순 트리거 신호.
-const reloadPayload = "reload"
-
+// Syncer DB 기반 리소스 데이터 메모리 보관 + 멀티 서버 동기화.
+//
+// Pub/Sub 동작:
+//   - Trigger 받은 서버: 즉시 LoadAll + selfID 페이로드로 publish
+//   - subscribe: 페이로드가 자기 selfID 면 skip (publisher 본인 중복 처리 방지)
 type Syncer struct {
 	store  *Store
 	loader *Loader
 	redis  *redis.Client
+	selfID string // 프로세스 생애 1회 발급. self-published 메시지 dedup 용
 	wg     sync.WaitGroup
 }
 
@@ -26,6 +30,7 @@ func NewSyncer(store *Store, loader *Loader, redisClient *redis.Client) *Syncer 
 		store:  store,
 		loader: loader,
 		redis:  redisClient,
+		selfID: util.NewInstanceID(),
 	}
 }
 
@@ -56,15 +61,16 @@ func (s *Syncer) LoadAll(ctx context.Context) error {
 }
 
 // Trigger 본 서버 갱신 + 다른 서버에 알림.
+// 페이로드에 selfID 를 실어 subscribe 쪽에서 self-message dedup.
 func (s *Syncer) Trigger(ctx context.Context) error {
 	if err := s.LoadAll(ctx); err != nil {
 		return err
 	}
-	return s.redis.Publish(ctx, PubSubChannel, reloadPayload).Err()
+	return s.redis.Publish(ctx, PubSubChannel, s.selfID).Err()
 }
 
 // subscribe 다른 서버의 PUBLISH를 수신하여 자기 메모리도 갱신한다.
-// 페이로드 무시, 항상 DB에서 다시 조회.
+// 페이로드가 자기 selfID 면 본인이 publish 한 메시지이므로 skip.
 func (s *Syncer) subscribe(ctx context.Context) {
 	pubsub := s.redis.Subscribe(ctx, PubSubChannel)
 	defer pubsub.Close()
@@ -74,9 +80,12 @@ func (s *Syncer) subscribe(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-ch:
+		case msg, ok := <-ch:
 			if !ok {
 				return
+			}
+			if msg.Payload == s.selfID && s.selfID != "" {
+				continue // self-published — Trigger 가 이미 처리함
 			}
 			if err := s.LoadAll(ctx); err != nil {
 				log.Error().Err(err).Msg("resource reload failed (subscriber)")

@@ -2,6 +2,7 @@ package util
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
@@ -26,4 +27,13 @@ func Uniqid(prefix string, moreEntropy bool) string {
 	}
 
 	return uid
+}
+
+// NewInstanceID 프로세스마다 고유한 16 자 hex ID 생성. self-publish 식별용.
+func NewInstanceID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b[:])
 }
