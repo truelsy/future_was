@@ -1,5 +1,6 @@
 server:
   port: "8089"
+  stage: "local"   # local | dev | qa | staging | live
 
 databases:
   - name: "game"

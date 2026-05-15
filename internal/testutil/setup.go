@@ -83,7 +83,7 @@ func initOnce() {
 	store := design.NewStore()
 	store.Replace(map[string]*design.Catalog{designVersion: cat})
 
-	ctn = container.New(store, nil, nil, nil)
+	ctn = container.New(config.StageLocal, store, nil, nil, nil)
 
 	// 모든 핸들러 테스트가 공유할 기본 계정 — TestAccount() 로 접근.
 	testAccount = CreateTestAccount()

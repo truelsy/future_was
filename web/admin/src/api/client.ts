@@ -91,12 +91,26 @@ export type MigrationFileContent = {
   content: string
 }
 
+export type CreateMigrationInput = {
+  category: 'game' | 'shard'
+  version: string
+  name: string
+  author: string
+  up_sql: string
+  down_sql: string
+}
+
 export const migrationsApi = {
   status: () => request<DBMigrationStatus[]>('/migrations/status'),
   file: (category: 'game' | 'shard', version: string, filename: string) => {
     const qs = new URLSearchParams({ category, version, filename })
     return request<MigrationFileContent>(`/migrations/file?${qs.toString()}`)
   },
+  create: (input: CreateMigrationInput) =>
+    request<{ path: string }>('/migrations', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 }
 
 export const versionApi = {

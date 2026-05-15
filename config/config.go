@@ -19,8 +19,35 @@ type CDNConfig struct {
 	HTTPTimeoutSeconds int    `yaml:"http_timeout_seconds"`
 }
 
+// Stage 서버가 떠 있는 환경 단계. config.yaml 의 server.stage 로 결정.
+// 환경별 분기 (로그 레벨, admin 노출 범위, 디버그 엔드포인트 등) 에 사용.
+type Stage string
+
+const (
+	StageLocal   Stage = "local"
+	StageDev     Stage = "dev"
+	StageQA      Stage = "qa"
+	StageStaging Stage = "staging"
+	StageLive    Stage = "live"
+)
+
+// validStages 허용된 stage 값 집합. 정확히 5 개로 제한.
+var validStages = map[Stage]struct{}{
+	StageLocal:   {},
+	StageDev:     {},
+	StageQA:      {},
+	StageStaging: {},
+	StageLive:    {},
+}
+
+// IsLive stage 가 live 인지 확인
+func (s Stage) IsLive() bool {
+	return s == StageLive
+}
+
 type ServerConfig struct {
-	Port string `yaml:"port"`
+	Port  string `yaml:"port"`
+	Stage Stage  `yaml:"stage"` // local | dev | qa | staging | live
 }
 
 type DBConfig struct {
@@ -48,7 +75,8 @@ func (c *DBConfig) DSN() string {
 	)
 }
 
-// Load는 지정된 경로의 YAML 설정 파일을 읽고 파싱한다.
+// Load 지정된 경로의 YAML 설정 파일을 읽고 파싱한다.
+// server.stage 값을 검증해 허용된 5 개 중 하나가 아니면 에러 반환.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -58,6 +86,10 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	if _, ok := validStages[cfg.Server.Stage]; !ok {
+		return nil, fmt.Errorf("invalid server.stage: %q (must be one of: local, dev, qa, staging, live)", cfg.Server.Stage)
 	}
 
 	return &cfg, nil

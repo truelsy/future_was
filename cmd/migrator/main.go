@@ -24,11 +24,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -98,9 +95,6 @@ Flags:
 // create
 // --------------------------------------------------------------------------
 
-var versionRE = regexp.MustCompile(`^\d+\.\d{2}\.\d{2}$`)
-var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_]*$`)
-
 func runCreate(args []string) {
 	fs := flag.NewFlagSet("create", flag.ExitOnError)
 	dbFlag := fs.String("db", "", "game | shard")
@@ -109,45 +103,20 @@ func runCreate(args []string) {
 	authorFlag := fs.String("author", "", "작업자 (생략 시 자동)")
 	_ = fs.Parse(args)
 
-	if *dbFlag != "game" && *dbFlag != "shard" {
-		fail("--db game|shard 필수")
-	}
-	if !versionRE.MatchString(*version) {
-		fail("--version 형식 오류 (x.yy.zz, 예: 2.01.02): %q", *version)
-	}
-	if !nameRE.MatchString(*name) {
-		fail("--name 은 snake_case 만 허용 (예: add_account_last_seen): %q", *name)
-	}
-
 	author, err := resolveAuthor(*authorFlag)
 	if err != nil {
 		fail("작업자 확정 실패: %v", err)
 	}
 
-	ts := time.Now().UTC().Format("20060102150405")
-	filename := fmt.Sprintf("%s_%s_%s.sql", ts, author, *name)
-	dir := filepath.Join("sql", "migrations", *dbFlag, *version)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		fail("디렉토리 생성: %v", err)
-	}
-	path := filepath.Join(dir, filename)
-	if _, err := os.Stat(path); err == nil {
-		fail("이미 존재: %s", path)
-	}
-
-	template := fmt.Sprintf(`-- migration: %s
--- author:    %s
--- created:   %s UTC
-
--- +goose Up
-
-
--- +goose Down
-
-`, *name, author, time.Now().UTC().Format(time.RFC3339))
-
-	if err := os.WriteFile(path, []byte(template), 0o644); err != nil {
-		fail("파일 작성: %v", err)
+	path, err := migrations.CreateMigrationFile(migrations.CreateRequest{
+		Category: migrations.MigrationCategory(*dbFlag),
+		Version:  *version,
+		Name:     *name,
+		Author:   author,
+		BaseDir:  "sql/migrations",
+	})
+	if err != nil {
+		fail("create: %v", err)
 	}
 	fmt.Printf("✓ created: %s\n", path)
 }
@@ -159,7 +128,7 @@ func runCreate(args []string) {
 // 결과는 영문 소문자 + 숫자 + '_' 만 남기고 sanitize.
 func resolveAuthor(flag string) (string, error) {
 	if flag != "" {
-		return sanitizeAuthor(flag), nil
+		return migrations.SanitizeAuthor(flag), nil
 	}
 	// git config
 	if out, err := exec.Command("git", "config", "user.email").Output(); err == nil {
@@ -167,30 +136,17 @@ func resolveAuthor(flag string) (string, error) {
 		if i := strings.Index(email, "@"); i > 0 {
 			email = email[:i]
 		}
-		if s := sanitizeAuthor(email); s != "" {
+		if s := migrations.SanitizeAuthor(email); s != "" {
 			return s, nil
 		}
 	}
 	// $USER
 	if u := os.Getenv("USER"); u != "" {
-		if s := sanitizeAuthor(u); s != "" {
+		if s := migrations.SanitizeAuthor(u); s != "" {
 			return s, nil
 		}
 	}
 	return "", fmt.Errorf("--author 명시하거나 git config user.email / $USER 를 설정")
-}
-
-func sanitizeAuthor(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '_' || r == '-':
-			b.WriteRune('_')
-		}
-	}
-	return b.String()
 }
 
 // --------------------------------------------------------------------------

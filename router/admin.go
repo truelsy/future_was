@@ -13,6 +13,7 @@ import (
 	"future_was/internal/clock"
 	"future_was/internal/container"
 	"future_was/internal/database"
+	"future_was/internal/log"
 	"future_was/internal/model"
 	"future_was/internal/repository"
 	"future_was/sql/migrations"
@@ -21,8 +22,16 @@ import (
 )
 
 // setupAdmin 관리자 전용 엔드포인트를 등록한다.
+// live 환경에서는 admin 기능을 *전혀 노출하지 않는다* — /admin 경로 전체가 404.
+// 공격 표면을 최소화하고 의도적으로만 운영 도구를 노출.
 // TODO: 인증 미들웨어(adminAuth)를 추가해야 한다.
 func setupAdmin(e *echo.Echo, c *container.Container) {
+	if c.Stage.IsLive() {
+		log.Info().Msg("admin endpoints disabled (stage=live)")
+		return
+	}
+	log.Info().Msgf("admin endpoints enabled (stage=%s)", c.Stage)
+
 	g := e.Group("/admin")
 
 	// POST /admin/design/reload
@@ -52,14 +61,14 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 // 실제 적용/롤백은 `make mig-up` CLI 만 지원. 운영 안전상 admin 페이지에서는 노출 X.
 func registerMigrationsAdmin(g *echo.Group) {
 	type fileStatus struct {
-		Version   string `json:"version"`    // 빈 문자열 = 루트 init
+		Version   string `json:"version"` // 빈 문자열 = 루트 init
 		Filename  string `json:"filename"`
 		VersionID int64  `json:"version_id"`
 		Applied   bool   `json:"applied"`
 	}
 	type dbStatus struct {
-		Label      string       `json:"label"`       // 표시명 — "GameDB[N_GAME]" 등
-		Category   string       `json:"category"`    // "game" | "shard"
+		Label      string       `json:"label"`    // 표시명 — "GameDB[N_GAME]" 등
+		Category   string       `json:"category"` // "game" | "shard"
 		ShardID    int8         `json:"shard_id"`
 		DBName     string       `json:"db_name"`
 		Total      int          `json:"total"`
@@ -106,10 +115,51 @@ func registerMigrationsAdmin(g *echo.Group) {
 		})
 	})
 
+	// POST /admin/migrations  새 마이그레이션 SQL 파일을 디스크에 생성.
+	// 서버는 프로젝트 루트에서 실행 중이어야 sql/migrations/ 경로가 올바르게 해석됨.
+	// 생성된 파일은 다음 `make mig-up` 시 go run 이 재빌드하면서 embed.FS 에 반영됨.
+	g.POST("/migrations", func(ec echo.Context) error {
+		var req struct {
+			Category string `json:"category"` // "game" | "shard"
+			Version  string `json:"version"`  // x.yy.zz
+			Name     string `json:"name"`     // snake_case
+			Author   string `json:"author"`
+			UpSQL    string `json:"up_sql"`
+			DownSQL  string `json:"down_sql"`
+		}
+		if err := ec.Bind(&req); err != nil {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		}
+
+		path, err := migrations.CreateMigrationFile(migrations.CreateRequest{
+			Category: migrations.MigrationCategory(req.Category),
+			Version:  req.Version,
+			Name:     req.Name,
+			Author:   req.Author,
+			BaseDir:  "sql/migrations",
+			UpSQL:    req.UpSQL,
+			DownSQL:  req.DownSQL,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, migrations.ErrFileExists):
+				return ec.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+			case errors.Is(err, migrations.ErrInvalidCategory),
+				errors.Is(err, migrations.ErrInvalidVersion),
+				errors.Is(err, migrations.ErrInvalidName),
+				errors.Is(err, migrations.ErrAuthorRequired):
+				return ec.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+			default:
+				return ec.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
+		}
+		return ec.JSON(http.StatusOK, map[string]string{"path": path})
+	})
+
 	// GET /admin/migrations/status  game + 모든 shard 의 적용 상태.
 	g.GET("/migrations/status", func(ec echo.Context) error {
 		ctx := ec.Request().Context()
-		out := []dbStatus{}
+		var out []dbStatus
 
 		for _, s := range database.AllShards() {
 			cat := migrations.CategoryShard

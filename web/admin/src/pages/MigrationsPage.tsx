@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   migrationsApi,
+  type CreateMigrationInput,
   type DBMigrationStatus,
   type MigrationFileStatus,
 } from '../api/client'
@@ -13,6 +14,9 @@ type ViewTarget = {
   filename: string
 }
 
+// 작업자명 — 1회 입력 후 브라우저에 보존.
+const AUTHOR_STORAGE_KEY = 'admin.migrations.author'
+
 export default function MigrationsPage() {
   const [dbs, setDbs] = useState<DBMigrationStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -24,6 +28,9 @@ export default function MigrationsPage() {
   const [viewContent, setViewContent] = useState<string>('')
   const [viewLoading, setViewLoading] = useState(false)
   const [viewError, setViewError] = useState<string | null>(null)
+  // 새 마이그레이션 생성 모달.
+  const [creating, setCreating] = useState(false)
+  const [created, setCreated] = useState<string | null>(null) // 성공 시 생성된 경로
 
   const refresh = async () => {
     setBusy(true)
@@ -154,13 +161,24 @@ export default function MigrationsPage() {
     <section className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-100">DB 마이그레이션</h2>
-        <button
-          onClick={refresh}
-          disabled={busy}
-          className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-        >
-          🔄 새로고침
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setCreated(null)
+              setCreating(true)
+            }}
+            className="rounded border border-indigo-700 bg-indigo-900/40 px-3 py-1.5 text-sm text-indigo-200 hover:bg-indigo-900/70"
+          >
+            + 새 마이그레이션
+          </button>
+          <button
+            onClick={refresh}
+            disabled={busy}
+            className="rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+          >
+            🔄 새로고침
+          </button>
+        </div>
       </div>
 
       {/* 안내 — 운영 가이드 */}
@@ -241,6 +259,41 @@ export default function MigrationsPage() {
         )}
       </div>
 
+      {/* 새 마이그레이션 생성 모달 */}
+      {creating && (
+        <CreateMigrationModal
+          onClose={() => setCreating(false)}
+          onSuccess={(path) => {
+            setCreated(path)
+            setCreating(false)
+          }}
+        />
+      )}
+
+      {/* 생성 성공 토스트 — 모달 닫힌 뒤에도 경로 표시 */}
+      {created && (
+        <div className="fixed bottom-6 right-6 z-40 max-w-md rounded-lg border border-emerald-700 bg-emerald-900/90 px-4 py-3 shadow-xl">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 text-sm text-emerald-100">
+              <div className="font-medium">✓ 마이그레이션 파일 생성됨</div>
+              <div className="mt-1 break-all font-mono text-xs text-emerald-200">
+                {created}
+              </div>
+              <div className="mt-2 text-xs text-emerald-300/80">
+                반영하려면 터미널에서 <code className="rounded bg-emerald-950/60 px-1.5 py-0.5">make mig-up</code> 실행
+              </div>
+            </div>
+            <button
+              onClick={() => setCreated(null)}
+              className="text-emerald-300 hover:text-emerald-100"
+              aria-label="닫기"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 파일 내용 뷰어 모달 — 더블클릭으로 진입, Esc / 외부 클릭 / X 로 닫음 */}
       {viewing && (
         <div
@@ -290,5 +343,225 @@ export default function MigrationsPage() {
         </div>
       )}
     </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 새 마이그레이션 생성 모달.
+// 폼 입력 → POST /admin/migrations → 파일 디스크 생성.
+// 본 SPA 가 떠 있는 상태에서 생성된 파일은 다음 `make mig-up` 시 go run 이
+// 재빌드하며 embed.FS 에 반영됨 (현재 떠 있는 서버의 status 목록엔 즉시 안 나옴).
+// ---------------------------------------------------------------------------
+function CreateMigrationModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void
+  onSuccess: (path: string) => void
+}) {
+  const [category, setCategory] = useState<'game' | 'shard'>('game')
+  const [version, setVersion] = useState('')
+  const [name, setName] = useState('')
+  const [author, setAuthor] = useState(() => localStorage.getItem(AUTHOR_STORAGE_KEY) ?? '')
+  const [upSQL, setUpSQL] = useState('')
+  const [downSQL, setDownSQL] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Esc 키로 닫기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    // 클라이언트 측 1차 검증 (서버에서도 검증되지만 UX 빠른 피드백)
+    if (!/^\d+\.\d{2}\.\d{2}$/.test(version)) {
+      setError('버전 형식 오류 — x.yy.zz (예: 2.01.02)')
+      return
+    }
+    if (!/^[a-z0-9][a-z0-9_]*$/.test(name)) {
+      setError('이름은 snake_case 만 허용 (예: add_account_last_seen)')
+      return
+    }
+    if (!author.trim()) {
+      setError('작업자 명시 필요')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const input: CreateMigrationInput = {
+        category,
+        version,
+        name,
+        author: author.trim(),
+        up_sql: upSQL,
+        down_sql: downSQL,
+      }
+      const res = await migrationsApi.create(input)
+      // 다음 방문을 위해 작업자명 보존
+      localStorage.setItem(AUTHOR_STORAGE_KEY, author.trim())
+      onSuccess(res.path)
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <form
+        onSubmit={onSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-full w-full max-w-3xl flex-col rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
+          <h3 className="text-lg font-medium text-slate-100">새 마이그레이션</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+            title="닫기 (Esc)"
+            aria-label="닫기"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-auto px-5 py-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* DB */}
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-300">DB</span>
+              <div className="flex gap-2">
+                {(['game', 'shard'] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategory(c)}
+                    className={`flex-1 rounded border px-3 py-2 text-sm transition ${
+                      category === c
+                        ? 'border-indigo-500 bg-indigo-900/40 text-indigo-200'
+                        : 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {c === 'game' ? 'GameDB' : 'ShardDB'}
+                  </button>
+                ))}
+              </div>
+            </label>
+
+            {/* 작업자 */}
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-300">작업자 *</span>
+              <input
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="mega"
+                required
+                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </label>
+
+            {/* 버전 */}
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-300">버전 * (x.yy.zz)</span>
+              <input
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                placeholder="2.01.02"
+                required
+                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </label>
+
+            {/* 이름 */}
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-slate-300">이름 * (snake_case)</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="add_account_last_seen"
+                required
+                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 font-mono text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </label>
+          </div>
+
+          {/* Up SQL */}
+          <label className="mt-4 flex flex-col gap-1 text-sm">
+            <span className="text-slate-300">-- +goose Up</span>
+            <textarea
+              value={upSQL}
+              onChange={(e) => setUpSQL(e.target.value)}
+              placeholder="ALTER TABLE TB_ACCOUNT ADD COLUMN last_seen BIGINT UNSIGNED NOT NULL DEFAULT 0;"
+              spellCheck={false}
+              rows={8}
+              className="resize-y rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </label>
+
+          {/* Down SQL */}
+          <label className="mt-3 flex flex-col gap-1 text-sm">
+            <span className="text-slate-300">
+              -- +goose Down{' '}
+              <span className="text-xs text-slate-500">(forward-only 면 비워둬도 됨)</span>
+            </span>
+            <textarea
+              value={downSQL}
+              onChange={(e) => setDownSQL(e.target.value)}
+              placeholder="ALTER TABLE TB_ACCOUNT DROP COLUMN last_seen;"
+              spellCheck={false}
+              rows={4}
+              className="resize-y rounded border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200 placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </label>
+
+          {error && (
+            <p className="mt-3 rounded border border-rose-800 bg-rose-900/30 px-3 py-2 text-sm text-rose-300">
+              ✗ {error}
+            </p>
+          )}
+
+          <p className="mt-4 rounded border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
+            생성된 파일은 디스크의{' '}
+            <code className="rounded bg-slate-800 px-1 py-0.5 text-slate-200">sql/migrations/&lt;db&gt;/&lt;버전&gt;/</code>
+            에 저장됨. 현재 떠 있는 서버에는 즉시 반영되지 않으며, 다음{' '}
+            <code className="rounded bg-slate-800 px-1 py-0.5 text-slate-200">make mig-up</code> 시점에 재빌드되어 적용됨.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-800 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            className="rounded border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+          >
+            취소
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
+          >
+            {submitting ? '생성 중…' : '생성'}
+          </button>
+        </div>
+      </form>
+    </div>
   )
 }

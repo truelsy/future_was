@@ -117,7 +117,7 @@ func main() {
 	}()
 
 	// Container 구성
-	ctn := container.New(designStore, designSyncer, resourceStore, resourceSyncer)
+	ctn := container.New(cfg.Server.Stage, designStore, designSyncer, resourceStore, resourceSyncer)
 
 	e := echo.New()
 	e.Use(middleware.RecoverMiddleware())
@@ -146,7 +146,7 @@ func main() {
 
 	go func() {
 		log.Info().Msgf("[START_WEBSHOP_SERVER] : (OS:%v, ARCH:%v, CPU:(%v/%v))", runtime.GOOS, runtime.GOARCH, runCpu, numCpu)
-		//log.Info().Msgf("[SERVER_ENV] %v(%+v)", config.Config.Server.Mode, config.GetEnv())
+		log.Info().Msgf("[SERVER_STAGE] : %v", cfg.Server.Stage)
 		log.Info().Msgf("[SERVICE_PORT] : %v", cfg.Server.Port)
 
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

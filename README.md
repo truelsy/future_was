@@ -905,6 +905,140 @@ A 와 B 가 정확히 같은 초에 `make mig-new-game` 호출하면 동일 `ver
 - 파일명 = timestamp 라 충돌 X. 머지 순서대로 version_id 가 결정됨.
 - 같은 컬럼을 양쪽이 건드리면 두 번째 ALTER 가 실패 → PR 리뷰에서 잡아야 함 (도구가 막아주지 않음).
 
+### 옛 마이그레이션 정리 (Squash)
+
+**원칙: 정리는 신중하게, 가능하면 미루기.** 마이그레이션 파일은 누적돼도 비용이 거의 0 — 파일은 작고 런타임에 영향 없음. 옛 파일은 "신규 환경 셋업 = 처음부터 재생" 능력을 보장하는 자산.
+
+#### 정리 필요 시그널
+
+다음 중 하나라도 해당되면 검토:
+- 신규 환경에서 `make mig-up` 이 분 단위로 걸림 (수백 개 누적)
+- 메이저 버전 bump 후 옛 스키마가 더 이상 의미 없음
+- 옛 마이그레이션이 사라진 컬럼/테이블에 의존 → fresh apply 실패
+- 옛 컬럼 type 이 현재 코드와 어긋남
+
+위 신호가 없으면 그대로 두는 게 안전.
+
+#### Squash 절차 (to new baseline)
+
+옛 마이그레이션을 모두 한 개의 새 baseline 으로 통합하는 방식.
+
+**1. 사전 조건 확인 — 가장 중요**
+
+```bash
+# 모든 환경 (dev / staging / prod) 에서
+make mig-status
+```
+squash 범위가 모두 `✓ applied` 인 것을 확인. 하나라도 pending 이면 squash 중단 후 해당 환경부터 `mig-up`.
+
+**2. squash 범위 결정**
+
+기준 예시:
+- 메이저 버전 단위 (2.x.x 전체 → 3.0 직전에 squash)
+- 연 단위 (매년 초에 작년 분 통합)
+- 개수 단위 (100~200 개 누적 시)
+
+**3. 현재 스키마 dump**
+
+```bash
+mysqldump --no-data --skip-add-drop-table --skip-comments \
+  -h <host> -u root -p N_GAME > /tmp/game_schema.sql
+mysqldump --no-data --skip-add-drop-table --skip-comments \
+  -h <host> -u root -p N_SHARD_10 > /tmp/shard_schema.sql
+```
+dump 에 `goose_db_version` 테이블이 있으면 제거 (자기 자신을 baseline 에 넣지 X).
+
+**4. 새 baseline 파일 작성**
+
+```sql
+-- sql/migrations/game/<신규TS>_init_baseline_v2.sql
+-- +goose Up
+-- baseline v2 — 2.01.x ~ 2.05.x 의 모든 변경을 통합한 스키마.
+
+CREATE TABLE IF NOT EXISTS `TB_ACCOUNT` (...);
+CREATE TABLE IF NOT EXISTS `TB_VERSION` (...);
+-- ... 모든 테이블 ...
+
+-- +goose Down
+SELECT 'baseline is forward-only' AS warning;
+```
+
+**중요**: `CREATE TABLE IF NOT EXISTS` 사용. 기존 환경 (이미 테이블 있음) 에서도 안전, 신규 환경엔 실제 생성. 샤드도 동일하게 작성.
+
+**5. `goose_db_version` 정리 마이그레이션 추가**
+
+```sql
+-- sql/migrations/game/<신규TS+1>_<author>_squash_old_versions.sql
+-- +goose Up
+-- 옛 version_id 들 제거. 새 baseline 만 남김.
+DELETE FROM goose_db_version WHERE version_id < <새 baseline 의 version_id>;
+
+-- +goose Down
+SELECT 'squash is forward-only' AS warning;
+```
+
+이 단계가 빠지면 환경마다 `goose_db_version` 상태가 불일치해 `mig-status` 가 혼란스러워짐.
+
+**6. 옛 디렉토리 삭제**
+
+```bash
+rm -rf sql/migrations/game/2.01.01 \
+       sql/migrations/game/2.01.02 \
+       sql/migrations/game/2.02.00 \
+       sql/migrations/game/2.03.00 \
+       sql/migrations/game/2.05.00
+rm sql/migrations/game/<옛 init>.sql
+# shard 도 동일
+```
+
+**7. 신규 환경 시뮬레이션 — 반드시**
+
+```bash
+# 빈 MySQL 컨테이너로 시뮬레이션
+docker run --rm -d -p 3307:3306 -e MYSQL_ROOT_PASSWORD=test mysql:8
+# config.yaml 잠시 변경 (port 3307) 후
+make mig-up
+make mig-status        # 새 baseline + squash 마이그레이션만 applied 로 보여야 함
+# TB_ACCOUNT 등 모든 테이블이 정상 생성됐는지 SHOW CREATE TABLE 로 확인
+```
+
+깨지면 PR 머지 X. **신규 환경 = disaster recovery 시나리오 = 핵심 안전성**.
+
+**8. PR + 단계적 배포**
+
+- dev → staging → production 순서로 배포
+- 각 단계마다 `make mig-status` 확인
+- production 배포 시 평소처럼 DB 백업
+
+#### 함정
+
+| ❌ | 결과 |
+|---|---|
+| `goose_db_version` 정리 마이그레이션 빠뜨림 | 환경마다 상태 불일치 |
+| `CREATE TABLE IF NOT EXISTS` 안 씀 | 기존 환경에서 "table already exists" 에러 |
+| 일부 환경이 squash 범위 미적용 상태인데 진행 | 그 환경 영영 복구 불가 (옛 파일 사라짐) |
+| 신규 환경 시뮬레이션 생략 | 미래의 dev / DR 시 처음부터 실패 |
+| 부분 정리 (옛 디렉토리 일부만 지움) | 의존성 깨짐, 의도 불명확 |
+| Down 마이그레이션 의미있게 작성 시도 | squash 의 down 은 복구 불가 — `forward-only` 명시만 |
+
+#### 결정 트리
+
+```
+정리하고 싶음
+  │
+  ▼
+신규 환경 셋업이 분 단위로 걸리나? (혹은 200+ 누적)
+  │
+  ├─ No  → 그대로 두기 (정리는 비용 vs 이득에서 손해)
+  │
+  └─ Yes ▼
+       모든 환경이 squash 범위까지 동기화돼 있나?
+         │
+         ├─ No  → 동기화 먼저 (각 환경에서 mig-up)
+         │
+         └─ Yes → 위 1~8 절차 진행
+```
+
 ### Go 측 통합
 
 ```

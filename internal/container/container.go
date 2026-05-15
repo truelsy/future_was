@@ -1,6 +1,7 @@
 package container
 
 import (
+	"future_was/config"
 	"future_was/internal/cache"
 	"future_was/internal/database"
 	"future_was/internal/design"
@@ -9,6 +10,7 @@ import (
 
 // Container 핸들러 전체에서 공유되는 의존성을 보관한다.
 type Container struct {
+	Stage          config.Stage // 환경 단계 (local / dev / qa / staging / live) — admin 노출 등 분기에 사용
 	GameDB         *database.Database
 	UserCache      *cache.UserCache
 	UserLock       *cache.UserLock
@@ -23,8 +25,9 @@ type Container struct {
 
 // New 기본 의존성으로 Container를 생성한다.
 // design 관련 의존성은 main에서 별도로 초기화 후 주입한다.
-func New(designStore *design.Store, designSyncer *design.Syncer, resourceStore *resource.Store, resourceSyncer *resource.Syncer) *Container {
+func New(stage config.Stage, designStore *design.Store, designSyncer *design.Syncer, resourceStore *resource.Store, resourceSyncer *resource.Syncer) *Container {
 	return &Container{
+		Stage:          stage,
 		GameDB:         database.GetGameDB(),
 		UserCache:      cache.NewUserCache(),
 		UserLock:       cache.NewUserLock(),
