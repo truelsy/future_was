@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -11,8 +12,10 @@ import (
 	"future_was/internal/admin_ui"
 	"future_was/internal/clock"
 	"future_was/internal/container"
+	"future_was/internal/database"
 	"future_was/internal/model"
 	"future_was/internal/repository"
+	"future_was/sql/migrations"
 
 	"github.com/labstack/echo/v4"
 )
@@ -41,7 +44,110 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 
 	registerClockAdmin(g, c)
 	registerVersionAdmin(g, c)
+	registerMigrationsAdmin(g)
 	registerAdminUI(g)
+}
+
+// registerMigrationsAdmin DB 마이그레이션 상태를 조회한다 (read-only).
+// 실제 적용/롤백은 `make mig-up` CLI 만 지원. 운영 안전상 admin 페이지에서는 노출 X.
+func registerMigrationsAdmin(g *echo.Group) {
+	type fileStatus struct {
+		Version   string `json:"version"`    // 빈 문자열 = 루트 init
+		Filename  string `json:"filename"`
+		VersionID int64  `json:"version_id"`
+		Applied   bool   `json:"applied"`
+	}
+	type dbStatus struct {
+		Label      string       `json:"label"`       // 표시명 — "GameDB[N_GAME]" 등
+		Category   string       `json:"category"`    // "game" | "shard"
+		ShardID    int8         `json:"shard_id"`
+		DBName     string       `json:"db_name"`
+		Total      int          `json:"total"`
+		Pending    int          `json:"pending"`
+		Migrations []fileStatus `json:"migrations"`
+		Error      string       `json:"error,omitempty"` // 한 DB 만 실패해도 다른 DB 결과는 반환
+	}
+
+	// path traversal 차단용 — 마이그레이션 파일 경로 검증.
+	versionRE := regexp.MustCompile(`^\d+\.\d{2}\.\d{2}$`)
+	filenameRE := regexp.MustCompile(`^\d{14}_[a-z0-9_]+\.sql$`)
+
+	// GET /admin/migrations/file?category=game|shard&version=2.01.02&filename=YYYYMMDDhhmmss_author_comment.sql
+	// 파일 내용을 그대로 반환. version 이 빈 문자열이면 루트(init) 파일.
+	g.GET("/migrations/file", func(ec echo.Context) error {
+		cat := ec.QueryParam("category")
+		ver := ec.QueryParam("version")
+		filename := ec.QueryParam("filename")
+
+		if cat != "game" && cat != "shard" {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": "category must be 'game' or 'shard'"})
+		}
+		if ver != "" && !versionRE.MatchString(ver) {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": "invalid version format (expected x.yy.zz)"})
+		}
+		if !filenameRE.MatchString(filename) {
+			return ec.JSON(http.StatusBadRequest, map[string]string{"error": "invalid filename format"})
+		}
+
+		// 경로 조립: <cat>/[<ver>/]<filename>
+		path := cat + "/"
+		if ver != "" {
+			path += ver + "/"
+		}
+		path += filename
+
+		data, err := migrations.FS.ReadFile(path)
+		if err != nil {
+			return ec.JSON(http.StatusNotFound, map[string]string{"error": "file not found: " + path})
+		}
+		return ec.JSON(http.StatusOK, map[string]any{
+			"path":    path,
+			"content": string(data),
+		})
+	})
+
+	// GET /admin/migrations/status  game + 모든 shard 의 적용 상태.
+	g.GET("/migrations/status", func(ec echo.Context) error {
+		ctx := ec.Request().Context()
+		out := []dbStatus{}
+
+		for _, s := range database.AllShards() {
+			cat := migrations.CategoryShard
+			label := "ShardDB[" + s.DBName + "]"
+			if s.ShardID == database.GameDBShardID {
+				cat = migrations.CategoryGame
+				label = "GameDB[" + s.DBName + "]"
+			}
+
+			ds := dbStatus{
+				Label:    label,
+				Category: string(cat),
+				ShardID:  s.ShardID,
+				DBName:   s.DBName,
+			}
+
+			rows, err := migrations.Status(ctx, s.DB.SqlxDB().DB, cat)
+			if err != nil {
+				ds.Error = err.Error()
+				out = append(out, ds)
+				continue
+			}
+			ds.Total = len(rows)
+			for _, r := range rows {
+				ds.Migrations = append(ds.Migrations, fileStatus{
+					Version:   r.Version,
+					Filename:  r.Filename,
+					VersionID: r.VersionID,
+					Applied:   r.Applied,
+				})
+				if !r.Applied {
+					ds.Pending++
+				}
+			}
+			out = append(out, ds)
+		}
+		return ec.JSON(http.StatusOK, out)
+	})
 }
 
 // registerVersionAdmin TB_VERSION 행 추가/조회.

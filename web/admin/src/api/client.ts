@@ -66,6 +66,39 @@ export type VersionCreateInput = {
   comment: string
 }
 
+// ===== Migrations =====
+
+export type MigrationFileStatus = {
+  version: string // 빈 문자열 = 루트 init
+  filename: string
+  version_id: number
+  applied: boolean
+}
+
+export type DBMigrationStatus = {
+  label: string // "GameDB[N_GAME]" / "ShardDB[N_SHARD_10]"
+  category: 'game' | 'shard'
+  shard_id: number
+  db_name: string
+  total: number
+  pending: number
+  migrations: MigrationFileStatus[] | null
+  error?: string
+}
+
+export type MigrationFileContent = {
+  path: string
+  content: string
+}
+
+export const migrationsApi = {
+  status: () => request<DBMigrationStatus[]>('/migrations/status'),
+  file: (category: 'game' | 'shard', version: string, filename: string) => {
+    const qs = new URLSearchParams({ category, version, filename })
+    return request<MigrationFileContent>(`/migrations/file?${qs.toString()}`)
+  },
+}
+
 export const versionApi = {
   list: () => request<Version[]>('/versions'),
   create: (v: VersionCreateInput) =>

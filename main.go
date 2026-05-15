@@ -40,12 +40,13 @@ func main() {
 
 	// Database 접속 처리
 	for _, dbCfg := range cfg.Databases {
-		db, err := database.Init(dbCfg.Name, dbCfg.DSN())
+		// 실제 DB 이름(N_GAME, N_SHARD_10 …) 을 저장 — 관리 화면 표시에 사용.
+		db, err := database.Init(dbCfg.DBName, dbCfg.DSN())
 		if err != nil {
 			log.Fatal().Err(err).Msgf("failed to init database [%s]: %v", dbCfg.Name, err)
 		}
 		database.RegisterShard(dbCfg.ShardID, db, dbCfg.Weight)
-		log.Info().Msgf("database [%s] connected (shard_id=%d)", dbCfg.Name, dbCfg.ShardID)
+		log.Info().Msgf("database [%s] connected (shard_id=%d, dbname=%s)", dbCfg.Name, dbCfg.ShardID, dbCfg.DBName)
 	}
 	defer database.CloseAll()
 

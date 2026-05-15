@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import ClockPage from './pages/ClockPage'
+import MigrationsPage from './pages/MigrationsPage'
 import VersionPage from './pages/VersionPage'
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
           <nav className="flex gap-4 text-sm">
             <NavItem to="/clock">시간 이동</NavItem>
             <NavItem to="/version">버전 관리</NavItem>
+            <NavItem to="/migrations">DB 마이그레이션</NavItem>
             {/* 새 페이지 추가 시 NavItem 한 줄 + Route 한 줄 */}
           </nav>
         </div>
@@ -21,6 +23,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/clock" replace />} />
           <Route path="/clock" element={<ClockPage />} />
           <Route path="/version" element={<VersionPage />} />
+          <Route path="/migrations" element={<MigrationsPage />} />
           <Route path="*" element={<p className="text-slate-400">Not Found</p>} />
         </Routes>
       </main>

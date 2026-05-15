@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"sort"
 	"sync"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -12,7 +13,15 @@ import (
 
 // Database 는 *sqlx.DB 인스턴스를 래핑하여 편의 메서드를 제공한다.
 type Database struct {
-	db *sqlx.DB
+	db     *sqlx.DB
+	dbName string // 등록 시 전달된 논리적 DB 이름 (예: "N_GAME", "N_SHARD_10"). 진단/관리 화면 표시용.
+}
+
+// ShardInfo 등록된 샤드의 메타데이터. AllShards 이터레이션에서 사용.
+type ShardInfo struct {
+	ShardID int8
+	DBName  string
+	DB      *Database
 }
 
 // weightedShard PickShard 의 누적 가중치 항목.
@@ -32,13 +41,17 @@ var (
 var ErrNoShardAvailable = errors.New("database: no shard available for user assignment")
 
 // Init 은 새 DB 연결을 생성하고 지정된 이름으로 등록한다.
-func Init(name, dsn string) (*Database, error) {
+// dbName 은 진단/관리 화면 표시용 (Database.DBName() 으로 조회).
+func Init(dbName, dsn string) (*Database, error) {
 	db, err := sqlx.Connect("mysql", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect database [%s]: %w", name, err)
+		return nil, fmt.Errorf("failed to connect database [%s]: %w", dbName, err)
 	}
-	return &Database{db: db}, nil
+	return &Database{db: db, dbName: dbName}, nil
 }
+
+// DBName 등록 시 전달된 논리적 DB 이름.
+func (d *Database) DBName() string { return d.dbName }
 
 // RegisterShard shard ID를 Database 인스턴스에 매핑한다.
 // weight > 0 이면 PickShard 가 사용하는 가중치 풀에도 포함된다.
@@ -52,6 +65,19 @@ func RegisterShard(shardID int8, db *Database, weight int) {
 		totalWeight += weight
 		shardPool = append(shardPool, weightedShard{id: shardID, cumWeight: totalWeight})
 	}
+}
+
+// AllShards 등록된 모든 샤드를 ShardID 오름차순으로 반환.
+// 마이그레이션 상태 페이지 등 모든 DB 를 순회해야 하는 관리 기능용.
+func AllShards() []ShardInfo {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := make([]ShardInfo, 0, len(shardMap))
+	for id, d := range shardMap {
+		out = append(out, ShardInfo{ShardID: id, DBName: d.dbName, DB: d})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ShardID < out[j].ShardID })
+	return out
 }
 
 // PickShard 등록된 weight 에 비례한 확률로 shard ID를 반환한다.
