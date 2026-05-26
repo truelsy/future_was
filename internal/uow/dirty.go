@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"sync"
 
-	"future_was/internal/database"
+	"future_cpbl_web_server/internal/database"
 )
 
 // modelRegistry 모델 타입 → EntityKind.Name 매핑.

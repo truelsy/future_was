@@ -3,26 +3,28 @@ package main
 import (
 	"context"
 	"errors"
-	"future_was/internal/log"
-	"future_was/internal/middleware"
-	"future_was/internal/resource"
-	"future_was/internal/util"
+	"future_cpbl_web_server/internal/log"
+	"future_cpbl_web_server/internal/middleware"
+	"future_cpbl_web_server/internal/resource"
+	"future_cpbl_web_server/internal/util"
 	"net/http"
+	"os"
 	"os/signal"
 	"runtime"
 	"time"
 
 	"golang.org/x/sys/unix"
 
-	"future_was/config"
-	"future_was/internal/cache"
-	"future_was/internal/clock"
-	"future_was/internal/container"
-	"future_was/internal/database"
-	"future_was/internal/design"
-	"future_was/internal/repository"
-	"future_was/pb"
-	"future_was/router"
+	"future_cpbl_web_server/config"
+	"future_cpbl_web_server/internal/cache"
+	"future_cpbl_web_server/internal/clock"
+	"future_cpbl_web_server/internal/container"
+	"future_cpbl_web_server/internal/database"
+	"future_cpbl_web_server/internal/design"
+	"future_cpbl_web_server/internal/repository"
+	"future_cpbl_web_server/pb"
+	"future_cpbl_web_server/router"
+	"future_cpbl_web_server/sql/migrations"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"
@@ -36,6 +38,13 @@ func main() {
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to config.Load")
+	}
+
+	// stage=local 이면 마이그레이션 소스를 디스크로 교체 — 재빌드 없이 새 파일이
+	// admin UI status / 파일 뷰어 에 즉시 반영됨. 그 외 환경은 embed.FS 그대로 (배포 일관성).
+	if cfg.Server.Stage == config.StageLocal {
+		migrations.SetSource(os.DirFS("sql/migrations"))
+		log.Info().Msg("migrations: using disk source (sql/migrations) — live file visibility enabled")
 	}
 
 	// Database 접속 처리

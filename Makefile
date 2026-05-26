@@ -1,6 +1,7 @@
 .PHONY: help build run proto clean vet test client design design-struct admin-ui release \
-        mig-up mig-up-game mig-up-shard mig-up-one mig-down mig-status mig-baseline \
-        mig-new-game mig-new-shard
+        mig-up mig-up-game mig-up-shard mig-up-one \
+        mig-down mig-down-game mig-down-shard \
+        mig-status mig-baseline mig-new-game mig-new-shard
 
 # `make` (인자 없이) 입력 시 help 표시.
 .DEFAULT_GOAL := help
@@ -100,8 +101,14 @@ mig-up-shard: ## 샤드 DB 만 적용
 mig-up-one: ## pending 중 1 개만 적용 (디버깅용)
 	go run ./cmd/migrator up-by-one
 
-mig-down: ## 직전 적용된 마이그레이션 1 개 롤백 (로컬 dev 권장)
+mig-down: ## 직전 적용된 마이그레이션 1 개 롤백 — game + 모든 shard (로컬 dev 권장)
 	go run ./cmd/migrator down
+
+mig-down-game: ## 게임 DB 만 롤백
+	go run ./cmd/migrator down --db game
+
+mig-down-shard: ## 샤드 DB 만 롤백
+	go run ./cmd/migrator down --db shard
 
 mig-status: ## 현재 적용 상태 출력
 	go run ./cmd/migrator status

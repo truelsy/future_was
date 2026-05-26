@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"future_was/internal/uow"
+	"future_cpbl_web_server/internal/uow"
 	"sync"
 
-	"future_was/pb"
+	"future_cpbl_web_server/pb"
 )
 
 // SyncBuilder dirty 모델 슬라이스를 받아 *pb.SyncData 의 도메인 필드를 채운다.

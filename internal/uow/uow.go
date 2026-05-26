@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"future_was/internal/container"
-	"future_was/internal/database"
-	"future_was/internal/design"
+	"future_cpbl_web_server/internal/container"
+	"future_cpbl_web_server/internal/database"
+	"future_cpbl_web_server/internal/design"
 
 	"github.com/jmoiron/sqlx"
 )

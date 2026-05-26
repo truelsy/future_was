@@ -1,7 +1,7 @@
 package uow
 
 import (
-	"future_was/internal/model"
+	"future_cpbl_web_server/internal/model"
 )
 
 // Account 계정 정보 로딩한다.

@@ -1,8 +1,8 @@
 package card
 
 import (
-	"future_was/internal/handler"
-	"future_was/pb"
+	"future_cpbl_web_server/internal/handler"
+	"future_cpbl_web_server/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"

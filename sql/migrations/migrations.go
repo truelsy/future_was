@@ -19,10 +19,25 @@
 // 새 카테고리(예: analytics) 추가 시 //go:embed 패턴에 두 줄(루트 + 서브디렉토리) 추가.
 package migrations
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 // game/ 와 shard/ 디렉토리 트리 전체를 재귀 embed.
 // 새 카테고리(예: analytics) 추가 시 디렉토리명 한 단어만 추가하면 됨.
 //
 //go:embed game shard
-var FS embed.FS
+var defaultFS embed.FS
+
+// FS 마이그레이션 파일 소스. 기본은 빌드 시 embed 된 정적 FS.
+// 로컬 dev 환경에서 SetSource(os.DirFS("sql/migrations")) 로 교체 시
+// 디스크의 최신 파일을 재빌드 없이 즉시 반영 가능 (admin UI status / 파일 뷰어 등).
+// 다른 환경에서는 embed 그대로 — 배포된 바이너리와 동일한 파일셋 보장.
+var FS fs.FS = defaultFS
+
+// SetSource 마이그레이션 소스 FS 를 교체한다.
+// 보통 main.go 에서 stage=local 일 때 1 회 호출. 동시성 안전성 X — 시작 시점에만 사용.
+func SetSource(src fs.FS) {
+	FS = src
+}

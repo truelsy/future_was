@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"future_was/config"
-	"future_was/internal/admin_ui"
-	"future_was/internal/clock"
-	"future_was/internal/container"
-	"future_was/internal/database"
-	"future_was/internal/log"
-	"future_was/internal/model"
-	"future_was/internal/repository"
-	"future_was/sql/migrations"
+	"future_cpbl_web_server/config"
+	"future_cpbl_web_server/internal/admin_ui"
+	"future_cpbl_web_server/internal/clock"
+	"future_cpbl_web_server/internal/container"
+	"future_cpbl_web_server/internal/database"
+	"future_cpbl_web_server/internal/log"
+	"future_cpbl_web_server/internal/model"
+	"future_cpbl_web_server/internal/repository"
+	"future_cpbl_web_server/sql/migrations"
 
 	"github.com/labstack/echo/v4"
 )
@@ -39,6 +39,14 @@ func setupAdmin(e *echo.Echo, c *container.Container) {
 	// POST /admin/design/reload
 	// TB_VERSION의 is_active=1 행을 다시 조회하여 디자인을 재로드하고,
 	// Redis Pub/Sub로 다른 서버에도 reload 신호를 보낸다.
+	//
+	// TODO(CDN 핫픽스 퍼지 지연 문제): CDN 캐시가 살아있는 동안 Reload를 눌러도 엣지가
+	// 옛날 manifest.json을 돌려줄 수 있음 — 퍼지 전파 완료 전(수 초~수십 초)에는 핫픽스
+	// 미반영.
+	//
+	// 방안 — CDN 퍼지 API 호출:
+	//   Trigger 전에 CDN 퍼지 API를 호출해 해당 version 경로의 캐시를 강제 무효화.
+	//   근본 해결이지만 CDN 업체별 API 구현 필요 (퍼지 완료까지 1~5초 대기).
 	g.POST("/design/reload", func(ec echo.Context) error {
 		if err := c.DesignSyncer.Trigger(ec.Request().Context()); err != nil {
 			return ec.String(http.StatusInternalServerError, err.Error())
@@ -114,7 +122,7 @@ func registerMigrationsAdmin(g *echo.Group, c *container.Container) {
 		}
 		path += filename
 
-		data, err := migrations.FS.ReadFile(path)
+		data, err := fs.ReadFile(migrations.FS, path)
 		if err != nil {
 			return ec.JSON(http.StatusNotFound, map[string]string{"error": "file not found: " + path})
 		}

@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"sort"
 	"sync"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -42,11 +43,24 @@ var ErrNoShardAvailable = errors.New("database: no shard available for user assi
 
 // Init 은 새 DB 연결을 생성하고 지정된 이름으로 등록한다.
 // dbName 은 진단/관리 화면 표시용 (Database.DBName() 으로 조회).
+//
+// 풀 설정 — "closing bad idle connection: unexpected read from socket" 예방:
+//   - ConnMaxIdleTime < MySQL wait_timeout (서버가 idle 끊기 전에 Go 가 먼저 폐기)
+//   - ConnMaxLifetime < LB/방화벽 idle timeout (중간 장비가 끊기 전에 갱신)
+//
+// 값은 일반적인 MySQL 기본(wait_timeout 보통 60~600s) + 사내 LB(보통 300~600s) 기준 보수적으로 설정.
+// 환경에 따라 조정 필요 시 config.yaml 로 노출 검토.
 func Init(dbName, dsn string) (*Database, error) {
 	db, err := sqlx.Connect("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect database [%s]: %w", dbName, err)
 	}
+
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxIdleTime(60 * time.Second)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	return &Database{db: db, dbName: dbName}, nil
 }
 

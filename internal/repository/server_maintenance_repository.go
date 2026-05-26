@@ -1,8 +1,8 @@
 package repository
 
 import (
-	"future_was/internal/database"
-	"future_was/internal/model"
+	"future_cpbl_web_server/internal/database"
+	"future_cpbl_web_server/internal/model"
 )
 
 type ServerMaintenanceRepository struct {

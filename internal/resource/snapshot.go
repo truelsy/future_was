@@ -1,7 +1,7 @@
 package resource
 
 import (
-	"future_was/internal/model"
+	"future_cpbl_web_server/internal/model"
 )
 
 type Snapshot struct {

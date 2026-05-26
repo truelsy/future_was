@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"future_was/internal/errcode"
-	"future_was/internal/uow"
+	"future_cpbl_web_server/internal/errcode"
+	"future_cpbl_web_server/internal/uow"
 )
 
 // CommitOrRollback UnitOfWork를 커밋한다. 실패 시 유저/클럽 캐시를

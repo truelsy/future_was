@@ -1,15 +1,15 @@
 package router
 
 import (
-	"future_was/internal/container"
-	"future_was/internal/handler"
+	"future_cpbl_web_server/internal/container"
+	"future_cpbl_web_server/internal/handler"
 
 	// 서브패키지의 init() 함수를 실행하여 액션을 등록하기 위한 blank import.
-	_ "future_was/internal/handler/account"
-	_ "future_was/internal/handler/asset"
-	_ "future_was/internal/handler/card"
-	_ "future_was/internal/handler/item"
-	_ "future_was/internal/handler/shop"
+	_ "future_cpbl_web_server/internal/handler/account"
+	_ "future_cpbl_web_server/internal/handler/asset"
+	_ "future_cpbl_web_server/internal/handler/card"
+	_ "future_cpbl_web_server/internal/handler/item"
+	_ "future_cpbl_web_server/internal/handler/shop"
 
 	"github.com/labstack/echo/v4"
 )

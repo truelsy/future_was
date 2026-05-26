@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"future_was/internal/log"
+	"future_cpbl_web_server/internal/log"
 	"net/http/httputil"
 	"runtime/debug"
 	"strings"

@@ -1,9 +1,9 @@
 package middleware
 
 import (
-	"future_was/internal/errcode"
-	"future_was/internal/handler"
-	"future_was/internal/resource"
+	"future_cpbl_web_server/internal/errcode"
+	"future_cpbl_web_server/internal/handler"
+	"future_cpbl_web_server/internal/resource"
 	"strings"
 	"time"
 

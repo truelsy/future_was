@@ -48,5 +48,5 @@ redis:
     db: 15
 
 cdn:
-  design_base_url: "https://futurenpb-dev-server-01.qpyou.cn:8001/test/design"
+  design_base_url: "https://futurenpb-dev-pm.qpyou.cn:8001/test/design"
   http_timeout_seconds: 10

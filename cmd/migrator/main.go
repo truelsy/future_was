@@ -29,9 +29,9 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"future_was/config"
-	"future_was/internal/database"
-	"future_was/sql/migrations"
+	"future_cpbl_web_server/config"
+	"future_cpbl_web_server/internal/database"
+	"future_cpbl_web_server/sql/migrations"
 )
 
 // 마이그레이션이 적용될 카테고리 단위. flag --db 값과 매핑.

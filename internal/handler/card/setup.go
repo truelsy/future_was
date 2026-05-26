@@ -1,10 +1,10 @@
 package card
 
 import (
-	"future_was/internal/container"
-	"future_was/internal/handler"
-	"future_was/internal/service"
-	"future_was/pb"
+	"future_cpbl_web_server/internal/container"
+	"future_cpbl_web_server/internal/handler"
+	"future_cpbl_web_server/internal/service"
+	"future_cpbl_web_server/pb"
 
 	"google.golang.org/protobuf/proto"
 )

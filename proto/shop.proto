@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package proto;
-option go_package = "future_was/pb";
+option go_package = "future_cpbl_web_server/pb";
 
 message ShopData {
   uint32 idx = 1;

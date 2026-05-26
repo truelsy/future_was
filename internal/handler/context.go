@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"future_was/internal/uow"
+	"future_cpbl_web_server/internal/uow"
 
 	"github.com/labstack/echo/v4"
 )
