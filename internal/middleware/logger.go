@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"bytes"
-	"future_cpbl_web_server/internal/handler"
-	"future_cpbl_web_server/internal/log"
+	"future_was/internal/handler"
+	"future_was/internal/log"
 	"io"
 	"time"
 

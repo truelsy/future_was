@@ -1,10 +1,10 @@
 package shop
 
 import (
-	"future_cpbl_web_server/internal/clock"
-	"future_cpbl_web_server/internal/design/schema"
-	"future_cpbl_web_server/internal/handler"
-	"future_cpbl_web_server/pb"
+	"future_was/internal/clock"
+	"future_was/internal/design/schema"
+	"future_was/internal/handler"
+	"future_was/pb"
 
 	"github.com/labstack/echo/v4"
 	"google.golang.org/protobuf/proto"

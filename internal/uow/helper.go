@@ -3,7 +3,7 @@ package uow
 import (
 	"reflect"
 
-	"future_cpbl_web_server/internal/database"
+	"future_was/internal/database"
 )
 
 // QueryClub 다른 클럽의 단일 엔티티를 조회한다 (ClubCache → DB → ClubCache).

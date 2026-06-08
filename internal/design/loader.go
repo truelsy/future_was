@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"future_cpbl_web_server/internal/design/schema"
-	"future_cpbl_web_server/internal/log"
+	"future_was/internal/design/schema"
+	"future_was/internal/log"
 )
 
 // Manifest CDN의 manifest.json 형식.

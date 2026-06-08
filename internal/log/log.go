@@ -1,7 +1,7 @@
 package log
 
 import (
-	"future_cpbl_web_server/internal/app"
+	"future_was/internal/app"
 	"io"
 	"os"
 	"path/filepath"

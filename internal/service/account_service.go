@@ -1,10 +1,10 @@
 package service
 
 import (
-	"future_cpbl_web_server/internal/clock"
-	"future_cpbl_web_server/internal/model"
-	"future_cpbl_web_server/internal/repository"
-	"future_cpbl_web_server/internal/uow"
+	"future_was/internal/clock"
+	"future_was/internal/model"
+	"future_was/internal/repository"
+	"future_was/internal/uow"
 )
 
 type AccountService struct {

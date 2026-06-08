@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"future_cpbl_web_server/internal/database"
-	"future_cpbl_web_server/internal/model"
+	"future_was/internal/database"
+	"future_was/internal/model"
 )
 
 type AddServerTimeRepository struct {

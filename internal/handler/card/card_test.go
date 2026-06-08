@@ -4,11 +4,11 @@ import (
 	"os"
 	"testing"
 
-	"future_cpbl_web_server/internal/handler"
-	"future_cpbl_web_server/internal/model"
-	"future_cpbl_web_server/internal/service"
-	"future_cpbl_web_server/internal/testutil"
-	"future_cpbl_web_server/pb"
+	"future_was/internal/handler"
+	"future_was/internal/model"
+	"future_was/internal/service"
+	"future_was/internal/testutil"
+	"future_was/pb"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

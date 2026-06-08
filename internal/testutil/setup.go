@@ -22,11 +22,11 @@ import (
 	"runtime"
 	"sync"
 
-	"future_cpbl_web_server/config"
-	"future_cpbl_web_server/internal/cache"
-	"future_cpbl_web_server/internal/container"
-	"future_cpbl_web_server/internal/database"
-	"future_cpbl_web_server/internal/design"
+	"future_was/config"
+	"future_was/internal/cache"
+	"future_was/internal/container"
+	"future_was/internal/database"
+	"future_was/internal/design"
 )
 
 // designVersion testdata 디렉토리명과 일치해야 한다.

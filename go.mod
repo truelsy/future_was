@@ -1,4 +1,4 @@
-module future_cpbl_web_server
+module future_was
 
 go 1.25.7
 

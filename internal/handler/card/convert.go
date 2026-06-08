@@ -2,8 +2,8 @@ package card
 
 import (
 	"encoding/json"
-	"future_cpbl_web_server/internal/model"
-	"future_cpbl_web_server/pb"
+	"future_was/internal/model"
+	"future_was/pb"
 )
 
 // toCardData model.Card를 pb.CardData로 변환한다.

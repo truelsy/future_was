@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"future_cpbl_web_server/internal/handler"
+	"future_was/internal/handler"
 	"io"
 	"net/http"
 	"os"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"future_cpbl_web_server/pb"
+	"future_was/pb"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"

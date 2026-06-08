@@ -3,8 +3,8 @@ package resource
 import (
 	"context"
 	"fmt"
-	"future_cpbl_web_server/internal/database"
-	"future_cpbl_web_server/internal/repository"
+	"future_was/internal/database"
+	"future_was/internal/repository"
 )
 
 type Loader struct {

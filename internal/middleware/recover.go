@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"future_cpbl_web_server/internal/log"
+	"future_was/internal/log"
 	"net/http/httputil"
 	"runtime/debug"
 	"strings"
@@ -18,7 +18,7 @@ func RecoverMiddleware() echo.MiddlewareFunc {
 					stack := strings.Split(string(debug.Stack()), "\n")
 					req, _ := httputil.DumpRequest(c.Request(), false)
 
-					log.Panic().Msgf("%s:%s\n\n%s", string(req), err, strings.Join(stack[4:], "\n"))
+					log.Error().Msgf("%s:%s\n\n%s", string(req), err, strings.Join(stack[4:], "\n"))
 					if e, ok := err.(error); ok {
 						c.Error(e)
 					} else {

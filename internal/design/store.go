@@ -3,7 +3,7 @@ package design
 import (
 	"sync"
 
-	"future_cpbl_web_server/internal/design/schema"
+	"future_was/internal/design/schema"
 )
 
 // Catalog 한 server_version의 모든 디자인 데이터를 담는 불변 카탈로그.
